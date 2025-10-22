@@ -2,9 +2,33 @@
 // Google Calendar Events Template
 // HTML modal with date picker, defaults to previous day if before 5am
 
-// Get default date (previous day if before 5am)
-const now = new Date();
-const defaultDate = now.getHours() < 5 ? new Date(now.getTime() - 24 * 60 * 60 * 1000) : now;
+// Get default date - check if we're in a daily note
+let defaultDate;
+
+// Check if current file is a daily note (common patterns: YYYY-MM-DD, YYYY/MM/DD, etc.)
+const currentFile = tp.file.title;
+const dailyNotePattern = /^\d{4}[-/]\d{1,2}[-/]\d{1,2}$/;
+
+if (dailyNotePattern.test(currentFile)) {
+    // We're in a daily note, use that date
+    const dateStr = currentFile.replace(/\//g, '-');
+    const parts = dateStr.split('-');
+    if (parts.length === 3) {
+        // Ensure proper formatting (YYYY-MM-DD)
+        const year = parts[0];
+        const month = parts[1].padStart(2, '0');
+        const day = parts[2].padStart(2, '0');
+        defaultDate = new Date(`${year}-${month}-${day}T00:00:00`);
+    } else {
+        // Fallback to today if parsing fails
+        defaultDate = new Date();
+    }
+} else {
+    // Not a daily note, use today (previous day if before 5am)
+    const now = new Date();
+    defaultDate = now.getHours() < 5 ? new Date(now.getTime() - 24 * 60 * 60 * 1000) : now;
+}
+
 const defaultDateString = defaultDate.getFullYear() + '-' + 
   String(defaultDate.getMonth() + 1).padStart(2, '0') + '-' + 
   String(defaultDate.getDate()).padStart(2, '0');
@@ -16,6 +40,12 @@ if (!targetDate) return;
 // Helper function to show date picker modal
 async function showDatePicker(defaultDate) {
   // HTML template for date picker modal
+  // Determine label text based on context
+  const isDailyNote = /^\d{4}[-/]\d{1,2}[-/]\d{1,2}$/.test(tp.file.title);
+  const labelText = isDailyNote ? 
+    `Select date (press Enter for ${defaultDate}):` : 
+    'Select date (press Enter for default):';
+
   const modalHTML = `
     <style>
   #date-picker::-webkit-calendar-picker-indicator {
@@ -26,7 +56,7 @@ async function showDatePicker(defaultDate) {
 
 <div style="padding: 20px;">
   <label style="display: block; margin-bottom: 10px; font-size: 14px;">
-    Select date (press Enter for default):
+    ${labelText}
   </label>
   <div style="position: relative; display: inline-block; width: 100%;">
     <input 
@@ -121,25 +151,53 @@ function formatEvents(eventsList) {
     
     eventsList.forEach(event => {
         if (event.trim()) {
-            const timePattern = /^(\d{1,2}:\d{2}\s*[AP]M)\s*-\s*(.+)$/;
+            // Parse time, name, and color from CLI output
+            // Format: "04:00 PM - Event Name - COLOR:1" or "04:00 PM - BOUNDARY:Wake Up - COLOR:1"
+            const timePattern = /^(\d{1,2}:\d{2}\s*[AP]M)\s*-\s*(.+?)\s*-\s*COLOR:(\d+)$/;
             const match = event.trim().match(timePattern);
             
             if (match) {
                 const time = match[1];
                 let name = match[2];
+                const colorId = match[3];
                 
                 // Remove BOUNDARY: prefix
                 if (name.startsWith('BOUNDARY:')) {
                     name = name.replace('BOUNDARY:', '');
                 }
                 
-                output += `${time} - **${name}**\n`;
+                // Get color square HTML
+                const colorSquare = getColorSquare(colorId);
+                
+                output += `${time} - ${colorSquare} **${name}**\n`;
             } else {
+                // Fallback for events without proper format
                 output += `**${event.trim()}**\n`;
             }
         }
     });
     
     return output;
+}
+
+// Helper function to get color square HTML
+function getColorSquare(colorId) {
+    const colors = {
+        '1': '#a4bdfc', // Blue
+        '2': '#7ae7bf', // Green
+        '3': '#dbadff', // Purple
+        '4': '#ff887c', // Red
+        '5': '#fbd75b', // Yellow
+        '6': '#ffb878', // Orange
+        '7': '#46d6db', // Teal
+        '8': '#e1e1e1', // Gray
+        '9': '#5484ed', // Dark Blue
+        '10': '#51b749', // Dark Green
+        '11': '#dc2127'  // Dark Red
+    };
+    
+    const color = colors[colorId] || colors['1']; // Default to blue if color not found
+    
+    return `<span style="display: inline-block; width: 12px; height: 12px; background-color: ${color}; border-radius: 2px; margin-right: 6px; vertical-align: middle;"></span>`;
 }
 %>

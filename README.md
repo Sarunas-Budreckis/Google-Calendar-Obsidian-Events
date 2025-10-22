@@ -6,8 +6,9 @@ Fetch Google Calendar events and insert them into Obsidian notes with custom day
 
 - **Sleep-Based Day Logic**: Day starts after your last "Sleep" event, ends before your next one
 - **Wake Up & Sleep Times**: Automatically shows when you wake up and go to sleep
-- **Visual Date Picker**: HTML modal with native calendar picker, defaults to previous day if before 5am
-- **Clean Output**: Direct event listing without headers
+- **Smart Date Picker**: HTML modal with native calendar picker, defaults to daily note date or today
+- **Daily Note Integration**: Automatically detects daily notes and defaults to that date
+- **Clean Output**: Direct event listing with color squares and no headers
 - **CLI Support**: Run directly from terminal
 
 ## Quick Setup
@@ -66,6 +67,11 @@ node cli.js 2024-10-22
 
 ## How It Works
 
+**Smart Date Detection:**
+- **Daily Notes**: If run from a file named like "2024-10-22" or "2024/10/22", defaults to that date
+- **Regular Notes**: Defaults to today (or previous day if before 5am)
+- **Manual Override**: Always allows selecting a different date in the picker
+
 **Day Boundaries:**
 - **Wake Up**: Time when your last "Sleep" event ended (or 12:01 AM)
 - **Sleep**: Time when your next "Sleep" event begins (or 5:00 AM next day)
@@ -73,12 +79,12 @@ node cli.js 2024-10-22
 
 **Output Format:**
 
-Clean event listing with wake up and sleep times:
+Clean event listing with color squares and wake up/sleep times:
 ```
-08:30 AM - **Wake Up**
-10:15 AM - **Meeting with Team**
-02:00 PM - **Lunch**
-01:00 AM - **Sleep**
+08:30 AM - 🟦 **Wake Up**
+10:15 AM - 🟩 **Meeting with Team**
+02:00 PM - 🟨 **Lunch**
+01:00 AM - 🟦 **Sleep**
 ```
 
 ## File Structure

@@ -47,12 +47,13 @@ class CalendarCLI {
         events.forEach(event => {
             const time = this.formatTime(event.start);
             const name = event.summary || 'Untitled Event';
+            const color = event.colorId || '1'; // Default to color 1 if no color specified
             
             // Mark boundary events for special formatting in template
             if (event.isBoundary) {
-                console.log(`${time} - BOUNDARY:${name}`);
+                console.log(`${time} - BOUNDARY:${name} - COLOR:${color}`);
             } else {
-                console.log(`${time} - ${name}`);
+                console.log(`${time} - ${name} - COLOR:${color}`);
             }
         });
     }

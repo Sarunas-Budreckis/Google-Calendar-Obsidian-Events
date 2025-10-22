@@ -56,7 +56,6 @@ class GoogleCalendarAPI {
     async saveToken(token) {
         try {
             await fs.writeFile(this.tokenPath, JSON.stringify(token));
-            console.log('Token saved successfully.');
         } catch (error) {
             console.error('Failed to save token:', error.message);
         }

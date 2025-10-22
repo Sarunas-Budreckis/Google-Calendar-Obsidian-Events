@@ -12,14 +12,14 @@ templater true
 ## Expected Output
 
 ```
-08:30 AM - **Wake Up**
-08:30 AM - **Commandos Stand-Up**
-09:00 AM - **Cloud Surfers Stand-Up**
-10:15 AM - **Shower**
-11:00 AM - **Lutron - In Office**
-03:00 PM - **CCaaS IT Touchpoint**
-07:00 PM - **Group Dinner: Kismet Cafe**
-01:00 AM - **Sleep**
+08:30 AM - 🟦 **Wake Up**
+08:30 AM - 🟪 **Commandos Stand-Up**
+09:00 AM - 🟪 **Cloud Surfers Stand-Up**
+10:15 AM - 🟦 **Shower**
+11:00 AM - 🟩 **Lutron - In Office**
+03:00 PM - 🟪 **CCaaS IT Touchpoint**
+07:00 PM - 🟦 **Group Dinner: Kismet Cafe**
+01:00 AM - 🟦 **Sleep**
 ```
 
 ## Setup Instructions
@@ -32,9 +32,10 @@ templater true
 
 ## Usage
 
-1. Click the button above
-2. Select a date from the picker
-3. Calendar events will be inserted into your note
+1. **From Daily Notes**: Click the button in a daily note (e.g., "2024-10-22") - defaults to that date
+2. **From Regular Notes**: Click the button in any other note - defaults to today
+3. **Select Date**: Use the date picker to choose a different date if needed
+4. **View Events**: Calendar events with color squares will be inserted into your note
 
 ## Direct Terminal Usage
 
