@@ -75,10 +75,10 @@ node cli.js 2024-10-22
 
 Clean event listing with wake up and sleep times:
 ```
-- 08:30 AM - **Wake Up**
-- 10:15 AM - **Meeting with Team**
-- 02:00 PM - **Lunch**
-- 01:00 AM - **Sleep**
+08:30 AM - **Wake Up**
+10:15 AM - **Meeting with Team**
+02:00 PM - **Lunch**
+01:00 AM - **Sleep**
 ```
 
 ## File Structure

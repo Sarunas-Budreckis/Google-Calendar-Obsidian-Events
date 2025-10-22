@@ -133,9 +133,9 @@ function formatEvents(eventsList) {
                     name = name.replace('BOUNDARY:', '');
                 }
                 
-                output += `- ${time} - **${name}**\n`;
+                output += `${time} - **${name}**\n`;
             } else {
-                output += `- **${event.trim()}**\n`;
+                output += `**${event.trim()}**\n`;
             }
         }
     });

@@ -12,16 +12,14 @@ templater true
 ## Expected Output
 
 ```
-## 📅 Calendar Events - 10/22/2024
-
-- 08:30 AM - **Wake Up**
-- 08:30 AM - **Commandos Stand-Up**
-- 09:00 AM - **Cloud Surfers Stand-Up**
-- 10:15 AM - **Shower**
-- 11:00 AM - **Lutron - In Office**
-- 03:00 PM - **CCaaS IT Touchpoint**
-- 07:00 PM - **Group Dinner: Kismet Cafe**
-- 01:00 AM - **Sleep**
+08:30 AM - **Wake Up**
+08:30 AM - **Commandos Stand-Up**
+09:00 AM - **Cloud Surfers Stand-Up**
+10:15 AM - **Shower**
+11:00 AM - **Lutron - In Office**
+03:00 PM - **CCaaS IT Touchpoint**
+07:00 PM - **Group Dinner: Kismet Cafe**
+01:00 AM - **Sleep**
 ```
 
 ## Setup Instructions
