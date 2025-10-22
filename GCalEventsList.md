@@ -1,139 +1,139 @@
 <%*
-// Google Calendar Events Template - Fixed version
-// This template uses child_process with proper working directory
+// Google Calendar Events Template
+// HTML modal with date picker, defaults to previous day if before 5am
 
-// Date selection options for user
-const dateOptions = [
-    "Today",
-    "Yesterday", 
-    "2 days ago",
-    "3 days ago",
-    "4 days ago",
-    "5 days ago",
-    "6 days ago",
-    "1 week ago",
-    "Custom date..."
-];
+// Get default date (previous day if before 5am)
+const now = new Date();
+const defaultDate = now.getHours() < 5 ? new Date(now.getTime() - 24 * 60 * 60 * 1000) : now;
+const defaultDateString = defaultDate.getFullYear() + '-' + 
+  String(defaultDate.getMonth() + 1).padStart(2, '0') + '-' + 
+  String(defaultDate.getDate()).padStart(2, '0');
 
-// Show date picker using Templater's suggester
-const selectedOption = await tp.system.suggester(dateOptions, dateOptions);
+// Show date picker modal
+const targetDate = await showDatePicker(defaultDateString);
+if (!targetDate) return;
 
-if (!selectedOption) {
-    // User cancelled
-    return;
-}
+// Helper function to show date picker modal
+async function showDatePicker(defaultDate) {
+  // HTML template for date picker modal
+  const modalHTML = `
+    <div style="padding: 20px;">
+      <label style="display: block; margin-bottom: 10px; font-size: 14px;">
+        Select date (press Enter for default):
+      </label>
+      <div style="position: relative; display: inline-block; width: 100%;">
+        <input 
+          type="date" 
+          id="date-picker" 
+          value="${defaultDate}"
+          style="width: 100%; padding: 8px 40px 8px 8px; font-size: 14px; border: 1px solid var(--background-modifier-border); border-radius: 4px; background: var(--background-primary); color: var(--text-normal);"
+        />
+        <div style="position: absolute; right: 8px; top: 50%; transform: translateY(-50%); pointer-events: none; color: var(--text-muted);">
+          📅
+        </div>
+      </div>
+      <div style="margin-top: 15px; display: flex; gap: 10px; justify-content: flex-end;">
+        <button id="cancel-btn" style="padding: 6px 16px;">Cancel</button>
+        <button id="confirm-btn" style="padding: 6px 16px; background: var(--interactive-accent); color: var(--text-on-accent);">Confirm</button>
+      </div>
+    </div>
+  `;
 
-let targetDate;
-
-// Calculate the target date based on selection
-if (selectedOption === "Custom date...") {
-    // Prompt for custom date
-    const customDate = await tp.system.prompt("Enter date (YYYY-MM-DD):");
-    if (!customDate) {
-        return; // User cancelled
-    }
-    targetDate = customDate;
-} else {
-    // Calculate date based on selection
-    const today = new Date();
-    const dateMap = {
-        "Today": 0,
-        "Yesterday": 1,
-        "2 days ago": 2,
-        "3 days ago": 3,
-        "4 days ago": 4,
-        "5 days ago": 5,
-        "6 days ago": 6,
-        "1 week ago": 7
+  return new Promise((resolve) => {
+    const modal = document.createElement('div');
+    modal.innerHTML = modalHTML;
+    modal.style.cssText = 'position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: var(--background-primary); border: 1px solid var(--background-modifier-border); border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.3); z-index: 1000;';
+    
+    const backdrop = document.createElement('div');
+    backdrop.style.cssText = 'position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); z-index: 999;';
+    
+    document.body.appendChild(backdrop);
+    document.body.appendChild(modal);
+    
+    const dateInput = modal.querySelector('#date-picker');
+    const confirmBtn = modal.querySelector('#confirm-btn');
+    const cancelBtn = modal.querySelector('#cancel-btn');
+    
+    const cleanup = () => {
+      backdrop.remove();
+      modal.remove();
     };
     
-    const daysAgo = dateMap[selectedOption];
-    const targetDateObj = new Date(today);
-    targetDateObj.setDate(today.getDate() - daysAgo);
+    const confirm = () => {
+      resolve(dateInput.value);
+      cleanup();
+    };
     
-    // Format as YYYY-MM-DD
-    targetDate = targetDateObj.getFullYear() + '-' + 
-                String(targetDateObj.getMonth() + 1).padStart(2, '0') + '-' + 
-                String(targetDateObj.getDate()).padStart(2, '0');
+    const cancel = () => {
+      resolve(null);
+      cleanup();
+    };
+    
+    setTimeout(() => dateInput.focus(), 100);
+    
+    dateInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') confirm();
+      else if (e.key === 'Escape') cancel();
+    });
+    
+    confirmBtn.addEventListener('click', confirm);
+    cancelBtn.addEventListener('click', cancel);
+    backdrop.addEventListener('click', cancel);
+  });
 }
 
 try {
-    // Use child_process.exec with proper working directory
+    // Execute CLI command
     const { exec } = require('child_process');
-    
     const projectPath = "C:\\Users\\Sarunas Budreckis\\Documents\\Obsidian Vaults\\Sarunas Obsidian Vault\\Google Calendar Obsidian Events";
     const command = `node cli.js "${targetDate}"`;
     
-    console.log('Executing command in directory:', projectPath);
-    console.log('Command:', command);
-    
     const eventsOutput = await new Promise((resolve, reject) => {
-        exec(command, { 
-            cwd: projectPath,
-            env: { ...process.env, NODE_ENV: 'production' }
-        }, (error, stdout, stderr) => {
+        exec(command, { cwd: projectPath }, (error, stdout, stderr) => {
             if (error) {
-                console.error('Command error:', error);
-                console.error('Stderr:', stderr);
-                reject(new Error(`Command failed: ${error.message}\nStderr: ${stderr}`));
+                reject(new Error(`Command failed: ${error.message}`));
             } else {
                 resolve(stdout);
             }
         });
     });
     
+    // Format events
     if (eventsOutput && eventsOutput.trim()) {
-        // Parse the events
-        const eventsList = eventsOutput.trim().split('\n');
-        
-        // Add a header with the date
-        const formattedDate = new Date(targetDate + 'T00:00:00').toLocaleDateString();
-        let output = `## 📅 Calendar Events - ${formattedDate}\n\n`;
-        
-        // Add each event as a list item with time and bold title
-        eventsList.forEach(event => {
-            if (event.trim()) {
-                // Parse the time and event name from the CLI output
-                // Format: "04:00 PM - Event Name" or "04:00 PM - BOUNDARY:Wake Up"
-                const timePattern = /^(\d{1,2}:\d{2}\s*[AP]M)\s*-\s*(.+)$/;
-                const match = event.trim().match(timePattern);
-                if (match) {
-                    const time = match[1];
-                    let name = match[2];
-                    
-                    // Handle boundary events (Wake Up and Sleep)
-                    if (name.startsWith('BOUNDARY:')) {
-                        name = name.replace('BOUNDARY:', '');
-                        if (name === 'Wake Up') {
-                            output += `- ${time} - **${name}**\n`;
-                        } else if (name === 'Sleep') {
-                            output += `- ${time} - **${name}**\n`;
-                        }
-                    } else {
-                        // Regular event
-                        output += `- ${time} - **${name}**\n`;
-                    }
-                } else {
-                    // No time pattern found, just bold the whole thing
-                    output += `- **${event.trim()}**\n`;
-                }
-            }
-        });
-        
-        // Add some spacing
-        output += '\n';
-        
-        // Return the content
-        return output;
-        
+        return formatEvents(eventsOutput.trim().split('\n'));
     } else {
-        // No events found
-        const formattedDate = new Date(targetDate + 'T00:00:00').toLocaleDateString();
-        return `## 📅 Calendar Events - ${formattedDate}\n\n*No events found for this date.*\n\n`;
+        return '*No events found for this date.*';
     }
     
 } catch (error) {
-    // Handle errors gracefully
-    return `## ❌ Calendar Events - Error\n\n*Failed to fetch calendar events: ${error.message}*\n\n*Please check that the Google Calendar integration is properly set up.*\n\n`;
+    return `*Error: ${error.message}*`;
+}
+
+// Helper function to format events
+function formatEvents(eventsList) {
+    let output = '';
+    
+    eventsList.forEach(event => {
+        if (event.trim()) {
+            const timePattern = /^(\d{1,2}:\d{2}\s*[AP]M)\s*-\s*(.+)$/;
+            const match = event.trim().match(timePattern);
+            
+            if (match) {
+                const time = match[1];
+                let name = match[2];
+                
+                // Remove BOUNDARY: prefix
+                if (name.startsWith('BOUNDARY:')) {
+                    name = name.replace('BOUNDARY:', '');
+                }
+                
+                output += `- ${time} - **${name}**\n`;
+            } else {
+                output += `- **${event.trim()}**\n`;
+            }
+        }
+    });
+    
+    return output;
 }
 %>

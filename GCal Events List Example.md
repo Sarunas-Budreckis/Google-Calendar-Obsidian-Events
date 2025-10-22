@@ -10,10 +10,6 @@ templater true
 ```
 
 
-
-
-
-
 ## Expected Output
 
 ```

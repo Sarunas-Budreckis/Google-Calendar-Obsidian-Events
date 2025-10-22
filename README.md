@@ -1,53 +1,62 @@
 # Google Calendar Obsidian Integration
 
-A simple integration that fetches Google Calendar events and inserts them into Obsidian notes using Templater and the Buttons plugin.
+Fetch Google Calendar events and insert them into Obsidian notes with custom day boundaries based on your sleep schedule.
 
 ## Features
 
-- **Custom Day Logic**: Uses "Sleep" events to define day boundaries
-- **Wake Up & Sleep Times**: Automatically adds wake up and sleep times based on your sleep schedule
-- **Time Formatting**: Shows events with formatted times and bold names
-- **Date Picker**: Interactive date selection in Obsidian
-- **CLI Support**: Can be run directly from terminal
+- **Sleep-Based Day Logic**: Day starts after your last "Sleep" event, ends before your next one
+- **Wake Up & Sleep Times**: Automatically shows when you wake up and go to sleep
+- **Visual Date Picker**: HTML modal with native calendar picker, defaults to previous day if before 5am
+- **Clean Output**: Direct event listing without headers
+- **CLI Support**: Run directly from terminal
 
 ## Quick Setup
 
-1. **Install Dependencies**:
-   ```bash
-   npm install
-   ```
+1. **Install**: `npm install`
+2. **Configure**: Create `.env` with Google OAuth credentials (see below)
+3. **Authenticate**: `node main.js`
+4. **Setup Template**: See "Template Setup" section below
+5. **Test**: `node setup-check.js`
 
-2. **Configure Environment**:
-   Create `.env` file with your Google OAuth credentials:
-   ```
-   GOOGLE_CLIENT_ID=your_client_id
-   GOOGLE_CLIENT_SECRET=your_client_secret
-   GOOGLE_REDIRECT_URI=http://localhost:3000/oauth2callback
-   CALENDAR_ID=your_calendar_id
-   ```
+### Environment Variables
 
-3. **Authenticate**:
-   ```bash
-   node main.js
-   ```
+Create `.env` file:
+```
+GOOGLE_CLIENT_ID=your_client_id
+GOOGLE_CLIENT_SECRET=your_client_secret
+GOOGLE_REDIRECT_URI=http://localhost:3000/oauth2callback
+CALENDAR_ID=your_calendar_id
+```
 
-4. **Copy Template**:
-   Copy `GCalEventsList.md` to your Templater templates folder
+## Template Setup
 
-5. **Test Setup**:
-   ```bash
-   node setup-check.js
-   ```
+### Option 1: Hard Link (Recommended)
+
+Keep all code in one directory while making the template available to Obsidian:
+
+```powershell
+# Run as Administrator
+cd "C:\Users\YourName\Documents\Obsidian Vaults\YourVault\Templates"
+New-Item -ItemType HardLink -Path "GCalEventsList.md" -Target "..\Google Calendar Obsidian Events\GCalEventsList.md"
+```
+
+**Benefits:**
+- Single source of truth for the template
+- Changes automatically sync to Obsidian
+- Template is version controlled with your code
+
+### Option 2: Manual Copy
+
+Copy `GCalEventsList.md` to your Templater templates folder whenever you make changes.
 
 ## Usage
 
 ### In Obsidian
 
-1. **Create Button**: Add a button using the Buttons plugin
-2. **Button Configuration**:
-   - **Button Text**: "📅 Get Calendar Events"
-   - **Action**: "Templater: Insert Template"
-   - **Template**: Select `GCalEventsList`
+Create a button with the Buttons plugin:
+- **Button Text**: "📅 Get Calendar Events"
+- **Action**: "Templater: Insert Template"
+- **Template**: Select `GCalEventsList`
 
 ### From Terminal
 
@@ -55,43 +64,39 @@ A simple integration that fetches Google Calendar events and inserts them into O
 node cli.js 2024-10-22
 ```
 
+## How It Works
+
+**Day Boundaries:**
+- **Wake Up**: Time when your last "Sleep" event ended (or 12:01 AM)
+- **Sleep**: Time when your next "Sleep" event begins (or 5:00 AM next day)
+- **Events**: Only shows events between wake up and sleep times
+
+**Output Format:**
+
+Clean event listing with wake up and sleep times:
+```
+- 08:30 AM - **Wake Up**
+- 10:15 AM - **Meeting with Team**
+- 02:00 PM - **Lunch**
+- 01:00 AM - **Sleep**
+```
+
 ## File Structure
 
 ```
 Google Calendar Obsidian Events/
 ├── main.js              # Main application
-├── cli.js               # Command-line interface
-├── googleCalendarAPI.js # Google Calendar API wrapper
-├── dateUtils.js         # Custom day boundary logic
-├── auth.js              # Authentication helper
-├── setup-check.js       # Environment validation
+├── cli.js               # CLI interface
+├── googleCalendarAPI.js # Google Calendar API
+├── dateUtils.js         # Day boundary logic
+├── GCalEventsList.md    # Templater template
 ├── package.json         # Dependencies
-└── .env                 # Environment variables
-
-Templates/
-└── GCalEventsList.md    # Templater template
-```
-
-## Custom Day Logic
-
-The integration defines a "day" based on "Sleep" events:
-- **Start**: After the last "Sleep" event (or 12:01 AM)
-- **End**: Before the first "Sleep" event the next day (or 5:00 AM)
-- **Excludes**: All-day events
-- **Includes**: Events that span across midnight
-
-## Output Format
-
-Events are formatted with wake up and sleep times:
-```
-- 08:30 AM - **Wake Up**
-- 10:15 AM - **Event Name**
-- 11:30 AM - **Another Event**
-- 01:00 AM - **Sleep**
+└── .env                 # OAuth credentials
 ```
 
 ## Troubleshooting
 
-- **Authentication Issues**: Run `node main.js` to re-authenticate
-- **Missing Events**: Check your calendar ID in `.env`
-- **Template Errors**: Ensure `GCalEventsList.md` is in your Templater templates folder
+- **Authentication**: Run `node main.js` to re-authenticate
+- **Missing Events**: Check `CALENDAR_ID` in `.env`
+- **Template Issues**: Ensure template is in Templater folder or hard linked
+- **Setup Check**: Run `node setup-check.js` to diagnose issues
