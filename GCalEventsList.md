@@ -17,26 +17,32 @@ if (!targetDate) return;
 async function showDatePicker(defaultDate) {
   // HTML template for date picker modal
   const modalHTML = `
-    <div style="padding: 20px;">
-      <label style="display: block; margin-bottom: 10px; font-size: 14px;">
-        Select date (press Enter for default):
-      </label>
-      <div style="position: relative; display: inline-block; width: 100%;">
-        <input 
-          type="date" 
-          id="date-picker" 
-          value="${defaultDate}"
-          style="width: 100%; padding: 8px 40px 8px 8px; font-size: 14px; border: 1px solid var(--background-modifier-border); border-radius: 4px; background: var(--background-primary); color: var(--text-normal);"
-        />
-        <div style="position: absolute; right: 8px; top: 50%; transform: translateY(-50%); pointer-events: none; color: var(--text-muted);">
-          📅
-        </div>
-      </div>
-      <div style="margin-top: 15px; display: flex; gap: 10px; justify-content: flex-end;">
-        <button id="cancel-btn" style="padding: 6px 16px;">Cancel</button>
-        <button id="confirm-btn" style="padding: 6px 16px; background: var(--interactive-accent); color: var(--text-on-accent);">Confirm</button>
-      </div>
-    </div>
+    <style>
+  #date-picker::-webkit-calendar-picker-indicator {
+    display: none;
+    -webkit-appearance: none;
+  }
+</style>
+
+<div style="padding: 20px;">
+  <label style="display: block; margin-bottom: 10px; font-size: 14px;">
+    Select date (press Enter for default):
+  </label>
+  <div style="position: relative; display: inline-block; width: 100%;">
+    <input 
+      type="date" 
+      id="date-picker" 
+      value="${defaultDate}"
+      
+      onclick="this.showPicker()"
+      style="width: 100%; padding: 8px; font-size: 14px; border: 1px solid var(--background-modifier-border); border-radius: 4px; background: var(--background-primary); color: var(--text-normal);"
+    />
+  </div>
+  <div style="margin-top: 15px; display: flex; gap: 10px; justify-content: flex-end;">
+    <button id="cancel-btn" style="padding: 6px 16px;">Cancel</button>
+    <button id="confirm-btn" style="padding: 6px 16px; background: var(--interactive-accent); color: var(--text-on-accent);">Confirm</button>
+  </div>
+</div>
   `;
 
   return new Promise((resolve) => {
