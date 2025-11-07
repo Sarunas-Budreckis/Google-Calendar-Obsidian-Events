@@ -123,24 +123,46 @@ try {
     const { exec } = require('child_process');
     const projectPath = "C:\\Users\\Sarunas Budreckis\\Documents\\Obsidian Vaults\\Sarunas Obsidian Vault\\Google Calendar Obsidian Events";
     const command = `node cli.js "${targetDate}"`;
-    
+
     const eventsOutput = await new Promise((resolve, reject) => {
         exec(command, { cwd: projectPath }, (error, stdout, stderr) => {
+            if (stderr) {
+                console.log('CLI stderr:', stderr);
+            }
             if (error) {
                 reject(new Error(`Command failed: ${error.message}`));
             } else {
+                console.log('CLI stdout lines:', stdout.split('\n').length);
                 resolve(stdout);
             }
         });
     });
-    
+
     // Format events
     if (eventsOutput && eventsOutput.trim()) {
-        return formatEvents(eventsOutput.trim().split('\n'));
+        console.log('Formatting events from CLI output');
+        const eventLines = eventsOutput.trim().split('\n');
+        console.log('Event lines to format:', eventLines.length);
+
+        const newEvents = formatEvents(eventLines);
+        console.log('Formatted events length:', newEvents.length);
+        console.log('First 100 chars of formatted:', newEvents.substring(0, 100));
+
+        const result = await updateEventsIdempotently(newEvents);
+
+        // Debug: show what we're returning
+        if (result === '') {
+            console.log('IDEMPOTENT: File was modified, returning empty string');
+        } else {
+            console.log('IDEMPOTENT: Returning', result.split('\n').length, 'lines to append');
+        }
+
+        return result;
     } else {
+        console.log('No events output from CLI');
         return '*No events found for this date.*';
     }
-    
+
 } catch (error) {
     return `*Error: ${error.message}*`;
 }
@@ -195,9 +217,112 @@ function getColorSquare(colorId) {
         '10': '#51b749', // Dark Green
         '11': '#dc2127'  // Dark Red
     };
-    
+
     const color = colors[colorId] || colors['1']; // Default to blue if color not found
-    
+
     return `<span style="display: inline-block; width: 12px; height: 12px; background-color: ${color}; border-radius: 2px; margin-right: 6px; vertical-align: middle;"></span>`;
+}
+
+// Helper function to update events idempotently
+async function updateEventsIdempotently(newEventsText) {
+    // Get current file content
+    const currentFile = app.vault.getAbstractFileByPath(tp.file.path(true));
+    const currentContent = await app.vault.read(currentFile);
+    const lines = currentContent.split('\n');
+
+    console.log('=== IDEMPOTENT UPDATE DEBUG ===');
+    console.log('Current file has', lines.length, 'lines');
+
+    // Parse new events into a map keyed by time + event name
+    const newEventsMap = new Map();
+    const eventPattern = /^(\d{1,2}:\d{2}\s*[AP]M)\s*-\s*<span style="display: inline-block;[^>]*><\/span>\s*\*\*(.+?)\*\*/;
+
+    newEventsText.split('\n').forEach((line, idx) => {
+        const match = line.match(eventPattern);
+        if (match) {
+            const time = match[1].trim();
+            const eventName = match[2].trim();
+            const key = `${time}|${eventName}`;
+            newEventsMap.set(key, line);
+            console.log(`New event ${idx}: ${key}`);
+        } else if (line.trim()) {
+            console.log(`New line ${idx} NO MATCH: "${line.substring(0, 60)}"`);
+        }
+    });
+
+    console.log(`\nParsed ${newEventsMap.size} new events`);
+
+    // Process existing content line by line
+    let hasEvents = false;
+    const updatedLines = [];
+    const processedKeys = new Set();
+
+    for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        const match = line.match(eventPattern);
+
+        if (match) {
+            hasEvents = true;
+            const time = match[1].trim();
+            const eventName = match[2].trim();
+            const key = `${time}|${eventName}`;
+            processedKeys.add(key);
+
+            console.log(`Existing line ${i}: ${key} - ${newEventsMap.has(key) ? 'UPDATING' : 'KEEPING'}`);
+
+            // Replace with new event if it exists, otherwise keep old
+            if (newEventsMap.has(key)) {
+                updatedLines.push(newEventsMap.get(key));
+            } else {
+                updatedLines.push(line);
+            }
+        } else {
+            updatedLines.push(line);
+        }
+    }
+
+    console.log(`\nProcessed ${processedKeys.size} existing events`);
+    console.log(`Has events: ${hasEvents}`);
+
+    // If events were found and updated, replace the file content
+    if (hasEvents) {
+        // Add any new events that weren't in the original content
+        const newEventLines = [];
+        for (const [key, eventLine] of newEventsMap) {
+            if (!processedKeys.has(key)) {
+                newEventLines.push(eventLine);
+                console.log(`New event to add: ${key}`);
+            }
+        }
+
+        console.log(`\n${newEventLines.length} new events to add`);
+
+        if (newEventLines.length > 0) {
+            // Find where to insert new events (after last existing event)
+            let insertIndex = -1;
+            for (let i = updatedLines.length - 1; i >= 0; i--) {
+                if (updatedLines[i].match(eventPattern)) {
+                    insertIndex = i + 1;
+                    break;
+                }
+            }
+
+            console.log(`Insert index: ${insertIndex}`);
+
+            if (insertIndex > 0) {
+                updatedLines.splice(insertIndex, 0, ...newEventLines);
+            }
+        }
+
+        // Replace file content
+        console.log(`Modifying file with ${updatedLines.length} lines`);
+        await app.vault.modify(currentFile, updatedLines.join('\n'));
+        console.log('File modified successfully');
+        return ''; // Return empty since we've updated the file
+    } else {
+        // No existing events, return new events to be appended
+        console.log('No existing events found, returning new events to append');
+        return newEventsText;
+    }
 }
 %>

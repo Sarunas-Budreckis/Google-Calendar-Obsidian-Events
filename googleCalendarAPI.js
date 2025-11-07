@@ -68,6 +68,17 @@ class GoogleCalendarAPI {
                 return true;
             }
 
+            // Check if running in non-interactive mode (no stdin)
+            const isInteractive = process.stdin.isTTY;
+
+            if (!isInteractive) {
+                // Not interactive - output error message for Obsidian
+                console.error('AUTHENTICATION_REQUIRED');
+                console.error('Token expired. Please run authentication manually:');
+                console.error('Open terminal and run: node "C:\\Users\\Sarunas Budreckis\\Documents\\Obsidian Vaults\\Sarunas Obsidian Vault\\Google Calendar Obsidian Events\\auth.js"');
+                return false;
+            }
+
             // Generate auth URL
             const authUrl = this.oauth2Client.generateAuthUrl({
                 access_type: 'offline',
@@ -107,7 +118,7 @@ class GoogleCalendarAPI {
         }
     }
 
-    async getEvents(startDate, endDate) {
+    async getEvents(startDate, endDate, retryCount = 0) {
         try {
             if (!this.calendar) {
                 throw new Error('Calendar API not initialized');
@@ -123,6 +134,36 @@ class GoogleCalendarAPI {
 
             return response.data.items || [];
         } catch (error) {
+            // Check for authentication errors
+            if (retryCount === 0 && (
+                error.message.includes('No access, refresh token') ||
+                error.message.includes('invalid_grant') ||
+                error.message.includes('invalid_token')
+            )) {
+                console.log('Authentication error detected. Starting re-authentication...\n');
+
+                // Delete the invalid token
+                try {
+                    await fs.unlink(this.tokenPath);
+                } catch (unlinkError) {
+                    // Ignore if file doesn't exist
+                }
+
+                // Clear existing credentials
+                this.oauth2Client.setCredentials({});
+
+                // Run authentication
+                const authSuccess = await this.authenticate();
+
+                if (authSuccess) {
+                    console.log('Re-authentication successful. Retrying request...\n');
+                    // Retry the request once after successful authentication
+                    return await this.getEvents(startDate, endDate, retryCount + 1);
+                } else {
+                    throw new Error('Re-authentication failed');
+                }
+            }
+
             console.error('Error fetching events:', error.message);
             throw error;
         }
@@ -216,7 +257,62 @@ class GoogleCalendarAPI {
 
             return true;
         } catch (error) {
+            // Check if it's an invalid_grant error
+            if (error.message && error.message.includes('invalid_grant')) {
+                console.log('Token refresh failed: invalid_grant');
+                console.log('Starting re-authentication...\n');
+
+                // Delete the invalid token
+                try {
+                    await fs.unlink(this.tokenPath);
+                } catch (unlinkError) {
+                    // Ignore if file doesn't exist
+                }
+
+                // Run authentication
+                const authSuccess = await this.authenticate();
+                return authSuccess;
+            }
+
             console.error('Token refresh failed:', error.message);
+            return false;
+        }
+    }
+
+    /**
+     * Test authentication by making an actual API call
+     * This verifies the credentials actually work
+     */
+    async testAuthentication() {
+        try {
+            if (!this.oauth2Client || !this.oauth2Client.credentials) {
+                return false;
+            }
+
+            // Try to make a simple API call to test credentials
+            const testDate = new Date();
+            const endDate = new Date(testDate.getTime() + 1000); // 1 second later
+
+            await this.calendar.events.list({
+                calendarId: process.env.CALENDAR_ID || 'primary',
+                timeMin: testDate.toISOString(),
+                timeMax: endDate.toISOString(),
+                maxResults: 1,
+                singleEvents: true
+            });
+
+            return true;
+        } catch (error) {
+            // If we get any error, credentials are not valid
+            console.log('Credential test failed:', error.message);
+
+            // Delete invalid token
+            try {
+                await fs.unlink(this.tokenPath);
+            } catch (unlinkError) {
+                // Ignore if file doesn't exist
+            }
+
             return false;
         }
     }

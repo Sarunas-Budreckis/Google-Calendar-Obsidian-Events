@@ -39,16 +39,20 @@ class CalendarCLI {
      * Output events to stdout
      */
     outputEvents(events) {
+        console.error(`=== CLI DEBUG: Outputting ${events.length} events ===`);
+
         if (events.length === 0) {
             console.log('No events found for the selected date.');
             return;
         }
 
-        events.forEach(event => {
+        events.forEach((event, idx) => {
             const time = this.formatTime(event.start);
             const name = event.summary || 'Untitled Event';
             const color = event.colorId || '1'; // Default to color 1 if no color specified
-            
+
+            console.error(`Event ${idx}: ${time} - ${name} - COLOR:${color}`);
+
             // Mark boundary events for special formatting in template
             if (event.isBoundary) {
                 console.log(`${time} - BOUNDARY:${name} - COLOR:${color}`);
@@ -56,6 +60,8 @@ class CalendarCLI {
                 console.log(`${time} - ${name} - COLOR:${color}`);
             }
         });
+
+        console.error('=== CLI DEBUG: Done outputting events ===');
     }
 
     /**
@@ -77,19 +83,13 @@ class CalendarCLI {
                 process.exit(1);
             }
 
-            // Check authentication
-            const isAuthenticated = await this.calendarAPI.isAuthenticated();
-            if (!isAuthenticated) {
-                console.error('Authentication required. Run: node main.js');
-                process.exit(1);
-            }
-
-            // Get and output events
+            // Get and output events (authentication will happen automatically if needed)
             const events = await this.calendarAPI.getEventsForCustomDay(targetDate);
             this.outputEvents(events);
 
         } catch (error) {
-            console.error('Error:', error.message);
+            console.error('CLI Error:', error.message);
+            console.error('Stack:', error.stack);
             process.exit(1);
         }
     }

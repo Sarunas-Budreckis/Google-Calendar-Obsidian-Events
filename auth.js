@@ -19,12 +19,15 @@ async function authenticate() {
             throw new Error('Failed to initialize Google Calendar API');
         }
         
-        // Check if already authenticated
-        const isAuthenticated = await calendarAPI.isAuthenticated();
+        // Check if already authenticated by actually testing the token
+        console.log('Checking existing credentials...');
+        const isAuthenticated = await calendarAPI.testAuthentication();
         if (isAuthenticated) {
             console.log('✅ Already authenticated!');
             return true;
         }
+
+        console.log('Existing credentials are invalid or expired. Starting new authentication...');
         
         // Start authentication flow
         console.log('🔑 Starting OAuth authentication...');
