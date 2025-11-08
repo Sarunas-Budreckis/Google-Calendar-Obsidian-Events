@@ -5,92 +5,88 @@ const path = require('path');
 async function updateEventsIdempotently(newEventsText, currentContent) {
     const lines = currentContent.split('\n');
 
-    // Parse new events into a map keyed by time + event name
-    const newEventsMap = new Map();
+    console.log('=== IDEMPOTENT UPDATE DEBUG ===');
+    console.log('Current file has', lines.length, 'lines');
+
+    // Parse new events into an array preserving order
+    const newEventsArray = [];
     const eventPattern = /^(\d{1,2}:\d{2}\s*[AP]M)\s*-\s*<span style="display: inline-block;[^>]*><\/span>\s*\*\*(.+?)\*\*/;
 
-    newEventsText.split('\n').forEach(line => {
+    newEventsText.split('\n').forEach((line, idx) => {
         const match = line.match(eventPattern);
         if (match) {
-            const time = match[1].trim();
-            const eventName = match[2].trim();
-            const key = `${time}|${eventName}`;
-            newEventsMap.set(key, line);
-            console.log(`New event: ${time} - ${eventName}`);
+            newEventsArray.push(line);
+            console.log(`New event ${idx}: ${line}`);
         }
     });
 
-    console.log(`\nParsed ${newEventsMap.size} new events\n`);
+    console.log(`\nParsed ${newEventsArray.length} new events`);
 
-    // Process existing content line by line
-    let hasEvents = false;
-    const updatedLines = [];
-    const processedKeys = new Set();
-
+    // Find all existing event lines
+    const existingEventIndices = [];
     for (let i = 0; i < lines.length; i++) {
         const line = lines[i];
         const match = line.match(eventPattern);
-
         if (match) {
-            hasEvents = true;
-            const time = match[1].trim();
-            const eventName = match[2].trim();
-            const key = `${time}|${eventName}`;
-            processedKeys.add(key);
-
-            console.log(`Found existing event: ${time} - ${eventName}`);
-
-            // Replace with new event if it exists, otherwise keep old
-            if (newEventsMap.has(key)) {
-                updatedLines.push(newEventsMap.get(key));
-                console.log(`  -> Updated with new data`);
-            } else {
-                updatedLines.push(line);
-                console.log(`  -> Kept old data (not in new events)`);
-            }
-        } else {
-            updatedLines.push(line);
+            existingEventIndices.push(i);
+            console.log(`Existing event line ${i}: ${line}`);
         }
     }
 
-    console.log(`\nProcessed ${processedKeys.size} existing events`);
-    console.log(`Has events: ${hasEvents}`);
+    console.log(`\nFound ${existingEventIndices.length} existing event lines`);
 
-    // If events were found and updated, replace the file content
-    if (hasEvents) {
-        // Add any new events that weren't in the original content
-        const newEventLines = [];
-        for (const [key, eventLine] of newEventsMap) {
-            if (!processedKeys.has(key)) {
-                newEventLines.push(eventLine);
-                console.log(`New event to add: ${key}`);
-            }
-        }
-
-        console.log(`\n${newEventLines.length} new events to add`);
-
-        if (newEventLines.length > 0) {
-            // Find where to insert new events (after last existing event)
-            let insertIndex = -1;
-            for (let i = updatedLines.length - 1; i >= 0; i--) {
-                if (updatedLines[i].match(eventPattern)) {
-                    insertIndex = i + 1;
-                    break;
-                }
-            }
-
-            console.log(`Insert index: ${insertIndex}`);
-
-            if (insertIndex > 0) {
-                updatedLines.splice(insertIndex, 0, ...newEventLines);
-            }
-        }
-
-        return updatedLines.join('\n');
-    } else {
-        // No existing events, return new events to be appended
+    // If no existing events found, return null to indicate append mode
+    if (existingEventIndices.length === 0) {
+        console.log('No existing events found, returning null (append mode)');
         return null;
     }
+
+    console.log('Matching lines found, updating in place...');
+
+    // Replace existing events with new ones one by one
+    const updatedLines = [...lines];
+    let newEventIndex = 0;
+
+    for (let i = 0; i < existingEventIndices.length; i++) {
+        const lineIndex = existingEventIndices[i];
+
+        if (newEventIndex < newEventsArray.length) {
+            // Replace old line with new event
+            console.log(`Replacing line ${lineIndex} with new event ${newEventIndex}`);
+            updatedLines[lineIndex] = newEventsArray[newEventIndex];
+            newEventIndex++;
+        } else {
+            // No more new events, delete this old line
+            console.log(`Deleting old line ${lineIndex} (no more new events)`);
+            updatedLines[lineIndex] = null; // Mark for deletion
+        }
+    }
+
+    // Remove null entries (deleted old lines)
+    const filteredLines = updatedLines.filter(line => line !== null);
+
+    // If there are extra new events, add them after the last existing event
+    if (newEventIndex < newEventsArray.length) {
+        const lastEventIndex = existingEventIndices[existingEventIndices.length - 1];
+        console.log(`Adding ${newEventsArray.length - newEventIndex} extra new events after line ${lastEventIndex}`);
+
+        // Find the position in filtered lines (accounting for deletions)
+        let insertPosition = lastEventIndex;
+        for (let i = 0; i < lastEventIndex; i++) {
+            if (updatedLines[i] === null) {
+                insertPosition--;
+            }
+        }
+        insertPosition++; // Insert after the last event
+
+        // Insert remaining new events
+        const remainingEvents = newEventsArray.slice(newEventIndex);
+        filteredLines.splice(insertPosition, 0, ...remainingEvents);
+        console.log(`Inserted ${remainingEvents.length} new events at position ${insertPosition}`);
+    }
+
+    console.log(`Modified file will have ${filteredLines.length} lines`);
+    return filteredLines.join('\n');
 }
 
 async function test() {

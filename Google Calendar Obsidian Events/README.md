@@ -31,24 +31,16 @@ CALENDAR_ID=your_calendar_id
 
 ## Template Setup
 
-### Option 1: Hard Link (Recommended)
+The template file `GCalEventsList.md` exists in two locations and both are tracked by git:
+- **Project folder**: `Google Calendar Obsidian Events/GCalEventsList.md` (source of truth)
+- **Templates folder**: `Templates/GCalEventsList.md` (used by Obsidian Templater)
 
-Keep all code in one directory while making the template available to Obsidian:
+**Important**: After editing the template, you must manually copy it from the project folder to the Templates folder. Both files are tracked by the same git repository (vault-level) to ensure version control.
 
 ```powershell
-# Run as Administrator
-cd "C:\Users\YourName\Documents\Obsidian Vaults\YourVault\Templates"
-New-Item -ItemType HardLink -Path "GCalEventsList.md" -Target "..\Google Calendar Obsidian Events\GCalEventsList.md"
+# Copy updated template to Templates folder
+Copy-Item "Google Calendar Obsidian Events\GCalEventsList.md" "Templates\GCalEventsList.md" -Force
 ```
-
-**Benefits:**
-- Single source of truth for the template
-- Changes automatically sync to Obsidian
-- Template is version controlled with your code
-
-### Option 2: Manual Copy
-
-Copy `GCalEventsList.md` to your Templater templates folder whenever you make changes.
 
 ## Usage
 
@@ -89,15 +81,24 @@ Clean event listing with color squares and wake up/sleep times:
 
 ## File Structure
 
+This project uses a vault-level git repository with selective `.gitignore` to track:
+- All files in the `Google Calendar Obsidian Events/` folder
+- The template file `Templates/GCalEventsList.md`
+
 ```
-Google Calendar Obsidian Events/
-├── main.js              # Main application
-├── cli.js               # CLI interface
-├── googleCalendarAPI.js # Google Calendar API
-├── dateUtils.js         # Day boundary logic
-├── GCalEventsList.md    # Templater template
-├── package.json         # Dependencies
-└── .env                 # OAuth credentials
+Obsidian Vault/
+├── .git/                                    # Git repository (vault level)
+├── .gitignore                               # Tracks only GCal folder + template
+├── Google Calendar Obsidian Events/
+│   ├── main.js                              # Main application
+│   ├── cli.js                               # CLI interface
+│   ├── googleCalendarAPI.js                 # Google Calendar API
+│   ├── dateUtils.js                         # Day boundary logic
+│   ├── GCalEventsList.md                    # Template (source)
+│   ├── package.json                         # Dependencies
+│   └── .env                                 # OAuth credentials
+└── Templates/
+    └── GCalEventsList.md                    # Template (copy for Obsidian)
 ```
 
 ## Troubleshooting

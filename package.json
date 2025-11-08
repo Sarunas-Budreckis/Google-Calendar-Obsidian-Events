@@ -1,16 +1,16 @@
 {
-  "name": "google-calendar-obsidian-query",
+  "name": "sarunas-obsidian-vault",
   "version": "1.0.0",
-  "description": "Query Google Calendar events and append to Obsidian notes",
-  "main": "main.js",
+  "description": "",
+  "main": "index.js",
   "scripts": {
-    "start": "node main.js"
+    "test": "echo \"Error: no test specified\" && exit 1"
   },
-  "dependencies": {
-    "googleapis": "^128.0.0",
-    "dotenv": "^16.3.1"
-  },
-  "keywords": ["obsidian", "google-calendar", "javascript"],
+  "keywords": [],
   "author": "",
-  "license": "MIT"
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "moment": "^2.30.1"
+  }
 }
