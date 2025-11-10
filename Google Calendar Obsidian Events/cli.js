@@ -204,6 +204,22 @@ class CalendarCLI {
             // Filter out deleted lines
             const filteredLines = updatedLines.filter(line => line !== null);
 
+            // Remove blank line immediately before first event (if exists)
+            if (existingEventIndices.length > 0) {
+                const firstEventIndex = existingEventIndices[0];
+                // Adjust index for any deletions before the first event
+                let adjustedIndex = firstEventIndex;
+                for (let i = 0; i < firstEventIndex; i++) {
+                    if (updatedLines[i] === null) adjustedIndex--;
+                }
+
+                // Check if line before first event is blank
+                if (adjustedIndex > 0 && filteredLines[adjustedIndex - 1] === '') {
+                    this.log(`  Removing blank line before first event at index ${adjustedIndex - 1}`);
+                    filteredLines.splice(adjustedIndex - 1, 1);
+                }
+            }
+
             // Add extra new events if any
             if (newEventsFormatted.length > existingEventIndices.length) {
                 const lastEventIndex = existingEventIndices[existingEventIndices.length - 1];
