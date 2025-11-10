@@ -129,9 +129,15 @@ async function showDatePicker(defaultDate) {
 try {
     // Execute CLI command with --file parameter to update in place
     const { exec } = require('child_process');
+    const path = require('path');
     const projectPath = "C:\\Users\\Sarunas Budreckis\\Documents\\Obsidian Vaults\\Sarunas Obsidian Vault\\Google Calendar Obsidian Events";
-    const currentFilePath = tp.file.path(true);
-    const command = `node cli.js "${targetDate}" --file "${currentFilePath}"`;
+    const vaultPath = "C:\\Users\\Sarunas Budreckis\\Documents\\Obsidian Vaults\\Sarunas Obsidian Vault";
+
+    // Get vault-relative path and convert to absolute path
+    const vaultRelativePath = tp.file.path(true);
+    const absoluteFilePath = path.join(vaultPath, vaultRelativePath);
+
+    const command = `node cli.js "${targetDate}" --file "${absoluteFilePath}"`;
 
     debug(`Executing: ${command}`);
 
@@ -199,8 +205,10 @@ try {
             return '*No events found for this date.*';
         }
     } else {
+        // Other errors - show notice but don't append anything
         debug(`Error: ${error.message}`);
-        return `*Error: ${error.message}*`;
+        new Notice(`[GCal Error] ${error.message}`, 10000);
+        return ''; // Return empty string to avoid appending error text
     }
 }
 
