@@ -52,7 +52,13 @@ class CalendarCLI {
     }
 
     getColorSquare(colorId) {
-        const color = COLOR_MAP[colorId] || COLOR_MAP['1'];
+        // Hardcoded override: default calendar color (9) should be #0088cc
+        let color;
+        if (colorId === '9') {
+            color = '#0088cc';
+        } else {
+            color = COLOR_MAP[colorId] || COLOR_MAP['1'];
+        }
         return `<span style="display: inline-block; width: 12px; height: 12px; background-color: ${color}; border-radius: 2px; margin-right: 6px; vertical-align: middle;"></span>`;
     }
 
