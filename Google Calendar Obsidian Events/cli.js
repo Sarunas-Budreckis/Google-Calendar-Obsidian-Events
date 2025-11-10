@@ -223,7 +223,10 @@ class CalendarCLI {
 
             // Write updated file
             this.log(`\n→ Writing file (${filteredLines.length} lines)`);
-            await fs.writeFile(filePath, filteredLines.join('\n'), 'utf8');
+            // Preserve original file's trailing newline behavior
+            const hasTrailingNewline = currentContent.endsWith('\n');
+            const newContent = filteredLines.join('\n') + (hasTrailingNewline ? '\n' : '');
+            await fs.writeFile(filePath, newContent, 'utf8');
 
             const summary = `${replaced} updated, ${deleted} deleted, ${added} added`;
             this.log(`=== SUCCESS: ${summary} ===\n`);
