@@ -215,27 +215,27 @@ try {
 // Helper function to format events
 function formatEvents(eventsList) {
     let output = '';
-    
+
     eventsList.forEach(event => {
         if (event.trim()) {
             // Parse time, name, and color from CLI output
-            // Format: "04:00 PM - Event Name - COLOR:1" or "04:00 PM - BOUNDARY:Wake Up - COLOR:1"
-            const timePattern = /^(\d{1,2}:\d{2}\s*[AP]M)\s*-\s*(.+?)\s*-\s*COLOR:(\d+)$/;
+            // Format: "04:00 PM - Event Name - COLOR:1" or "04:00 PM - BOUNDARY:Wake Up - COLOR:" (empty for default)
+            const timePattern = /^(\d{1,2}:\d{2}\s*[AP]M)\s*-\s*(.+?)\s*-\s*COLOR:(\d*)$/;
             const match = event.trim().match(timePattern);
-            
+
             if (match) {
                 const time = match[1];
                 let name = match[2];
-                const colorId = match[3];
-                
+                const colorId = match[3];  // Can be empty string for default calendar color
+
                 // Remove BOUNDARY: prefix
                 if (name.startsWith('BOUNDARY:')) {
                     name = name.replace('BOUNDARY:', '');
                 }
-                
+
                 // Get color square HTML
                 const colorSquare = getColorSquare(colorId);
-                
+
                 output += `${time} - ${colorSquare} **${name}**\n`;
             } else {
                 // Fallback for events without proper format
@@ -243,7 +243,7 @@ function formatEvents(eventsList) {
             }
         }
     });
-    
+
     return output;
 }
 
