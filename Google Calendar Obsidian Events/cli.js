@@ -19,7 +19,19 @@ class CalendarCLI {
     }
 
     log(...args) {
-        const timestamp = new Date().toISOString();
+        const now = new Date();
+        // Convert to Central Time (America/Chicago)
+        const timestamp = now.toLocaleString('en-US', {
+            timeZone: 'America/Chicago',
+            year: 'numeric',
+            month: '2-digit',
+            day: '2-digit',
+            hour: '2-digit',
+            minute: '2-digit',
+            second: '2-digit',
+            hour12: false
+        }).replace(/(\d+)\/(\d+)\/(\d+),\s*/, '$3-$1-$2 ') + ' CT';
+
         const message = args.map(arg =>
             typeof arg === 'object' ? JSON.stringify(arg) : String(arg)
         ).join(' ');
