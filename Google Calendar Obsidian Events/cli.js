@@ -52,10 +52,10 @@ class CalendarCLI {
     }
 
     getColorSquare(colorId) {
-        // Hardcoded override: default calendar color (9) should be #0088cc
+        // Hardcoded override: events without explicit color (using default calendar color) should be #00aaff
         let color;
-        if (colorId === '9') {
-            color = '#0088cc';
+        if (!colorId || colorId === '') {
+            color = '#00aaff';
         } else {
             color = COLOR_MAP[colorId] || COLOR_MAP['1'];
         }
@@ -65,7 +65,7 @@ class CalendarCLI {
     formatEventLine(event) {
         const time = this.formatTime(event.start);
         const name = event.summary || 'Untitled Event';
-        const color = event.colorId || '1';
+        const color = event.colorId || '';  // Empty string for default calendar color
         const colorSquare = this.getColorSquare(color);
         return `${time} - ${colorSquare} **${name}**`;
     }
@@ -82,9 +82,9 @@ class CalendarCLI {
         events.forEach((event, idx) => {
             const time = this.formatTime(event.start);
             const name = event.summary || 'Untitled Event';
-            const color = event.colorId || '1';
+            const color = event.colorId || '';  // Empty string for default calendar color
 
-            this.log(`  [${idx}] ${time} - ${name} (color:${color}${event.isBoundary ? ', boundary' : ''})`);
+            this.log(`  [${idx}] ${time} - ${name} (color:${color || 'default'}${event.isBoundary ? ', boundary' : ''})`);
 
             const prefix = event.isBoundary ? 'BOUNDARY:' : '';
             console.log(`${time} - ${prefix}${name} - COLOR:${color}`);

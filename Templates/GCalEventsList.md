@@ -249,9 +249,9 @@ function formatEvents(eventsList) {
 
 // Helper function to get color square HTML
 function getColorSquare(colorId) {
-    // Hardcoded override: default calendar color (9) should be #0088cc
-    if (colorId === '9') {
-        return `<span style="display: inline-block; width: 12px; height: 12px; background-color: #0088cc; border-radius: 2px; margin-right: 6px; vertical-align: middle;"></span>`;
+    // Hardcoded override: events without explicit color (using default calendar color) should be #00aaff
+    if (!colorId || colorId === '') {
+        return `<span style="display: inline-block; width: 12px; height: 12px; background-color: #00aaff; border-radius: 2px; margin-right: 6px; vertical-align: middle;"></span>`;
     }
 
     const colors = {
@@ -263,7 +263,7 @@ function getColorSquare(colorId) {
         '6': '#ffb878', // Orange
         '7': '#46d6db', // Teal
         '8': '#e1e1e1', // Gray
-        '9': '#5484ed', // Dark Blue (overridden above)
+        '9': '#5484ed', // Dark Blue
         '10': '#51b749', // Dark Green
         '11': '#dc2127'  // Dark Red
     };
