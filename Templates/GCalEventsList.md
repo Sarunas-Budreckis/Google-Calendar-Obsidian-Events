@@ -127,21 +127,14 @@ async function showDatePicker(defaultDate) {
 }
 
 try {
-    // Execute CLI command with --file parameter to update in place
+    // Execute CLI command WITHOUT --file parameter (CLI will just output event data)
     const { exec } = require('child_process');
-    const path = require('path');
     const projectPath = "C:\\Users\\Sarunas Budreckis\\Documents\\Obsidian Vaults\\Sarunas Obsidian Vault\\Google Calendar Obsidian Events";
-    const vaultPath = "C:\\Users\\Sarunas Budreckis\\Documents\\Obsidian Vaults\\Sarunas Obsidian Vault";
-
-    // Get vault-relative path and convert to absolute path
-    const vaultRelativePath = tp.file.path(true);
-    const absoluteFilePath = path.join(vaultPath, vaultRelativePath);
-
-    const command = `node cli.js "${targetDate}" --file "${absoluteFilePath}"`;
+    const command = `node cli.js "${targetDate}"`;
 
     debug(`Executing: ${command}`);
 
-    const result = await new Promise((resolve, reject) => {
+    const eventsOutput = await new Promise((resolve, reject) => {
         exec(command, { cwd: projectPath }, (error, stdout, stderr) => {
             debug(`stdout: ${stdout}`);
             debug(`stderr: ${stderr}`);
@@ -154,62 +147,28 @@ try {
                 return;
             }
 
-            // Check stdout for result
-            const output = stdout.trim();
-
-            if (output.startsWith('SUCCESS:')) {
-                const summary = output.substring(8); // Remove "SUCCESS:" prefix
-                debug(`Success: ${summary}`);
-                new Notice(`[GCal] ${summary}`, 4000);
-                resolve(''); // Return empty - file was updated
-            } else if (output === 'NO_EXISTING_EVENTS') {
-                debug('No existing events found - need to append');
-                // Fall back to append mode - CLI outputs event data
-                reject(new Error('APPEND_MODE'));
-            } else {
-                debug(`Unexpected output: ${output}`);
-                new Notice('[GCal] File updated', 3000);
-                resolve('');
-            }
+            resolve(stdout);
         });
     });
 
+    if (!eventsOutput || !eventsOutput.trim()) {
+        new Notice('[GCal] No events found', 3000);
+        return '*No events found for this date.*';
+    }
+
+    // Parse CLI output into formatted event lines
+    const eventLines = eventsOutput.trim().split('\n');
+    const formatted = formatEvents(eventLines);
+
+    // Now update the file using Obsidian's API (avoids race condition with Tasks plugin)
+    const result = await updateEventsIdempotently(formatted);
     return result;
 
 } catch (error) {
-    if (error.message === 'APPEND_MODE') {
-        // No existing events - run CLI again in output mode and append
-        debug('Running in append mode...');
-
-        const { exec } = require('child_process');
-        const projectPath = "C:\\Users\\Sarunas Budreckis\\Documents\\Obsidian Vaults\\Sarunas Obsidian Vault\\Google Calendar Obsidian Events";
-        const command = `node cli.js "${targetDate}"`;
-
-        const eventsOutput = await new Promise((resolve, reject) => {
-            exec(command, { cwd: projectPath }, (error, stdout, stderr) => {
-                if (error) {
-                    reject(error);
-                } else {
-                    resolve(stdout);
-                }
-            });
-        });
-
-        if (eventsOutput && eventsOutput.trim()) {
-            const eventLines = eventsOutput.trim().split('\n');
-            const formatted = formatEvents(eventLines);
-            new Notice(`[GCal] Appending ${eventLines.length} events`, 3000);
-            return formatted;
-        } else {
-            new Notice('[GCal] No events found', 3000);
-            return '*No events found for this date.*';
-        }
-    } else {
-        // Other errors - show notice but don't append anything
-        debug(`Error: ${error.message}`);
-        new Notice(`[GCal Error] ${error.message}`, 10000);
-        return ''; // Return empty string to avoid appending error text
-    }
+    // Handle errors
+    debug(`Error: ${error.message}`);
+    new Notice(`[GCal Error] ${error.message}`, 10000);
+    return ''; // Return empty string to avoid appending error text
 }
 
 // Helper function to format events
@@ -233,8 +192,8 @@ function formatEvents(eventsList) {
                     name = name.replace('BOUNDARY:', '');
                 }
 
-                // Get color square HTML
-                const colorSquare = getColorSquare(colorId);
+                // Get color square HTML (pass event name for Sleep detection)
+                const colorSquare = getColorSquare(colorId, name);
 
                 output += `${time} - ${colorSquare} **${name}**\n`;
             } else {
@@ -248,24 +207,30 @@ function formatEvents(eventsList) {
 }
 
 // Helper function to get color square HTML
-function getColorSquare(colorId) {
+function getColorSquare(colorId, eventName = '') {
+    // Hardcoded override: Sleep and Wake Up events should always be grey (#7c7c7c)
+    const nameLower = eventName ? eventName.toLowerCase() : '';
+    if (nameLower.includes('sleep') || nameLower.includes('wake up')) {
+        return `<span style="display: inline-block; width: 12px; height: 12px; background-color: #7c7c7c; border-radius: 2px; margin-right: 6px; vertical-align: middle;"></span>`;
+    }
+
     // Hardcoded override: events without explicit color (using default calendar color) should be #00aaff
     if (!colorId || colorId === '') {
         return `<span style="display: inline-block; width: 12px; height: 12px; background-color: #00aaff; border-radius: 2px; margin-right: 6px; vertical-align: middle;"></span>`;
     }
 
     const colors = {
-        '1': '#a4bdfc', // Blue
-        '2': '#7ae7bf', // Green
-        '3': '#dbadff', // Purple
-        '4': '#ff887c', // Red
-        '5': '#fbd75b', // Yellow
-        '6': '#ffb878', // Orange
-        '7': '#46d6db', // Teal
-        '8': '#e1e1e1', // Gray
-        '9': '#5484ed', // Dark Blue
-        '10': '#51b749', // Dark Green
-        '11': '#dc2127'  // Dark Red
+        '1': '#828bc2', // Lavender (dark theme)
+        '2': '#33b679', // Sage (dark theme)
+        '3': '#9e69af', // Grape (dark theme)
+        '4': '#e67c73', // Flamingo (dark theme)
+        '5': '#f6bf26', // Banana (dark theme)
+        '6': '#f4511e', // Tangerine (dark theme)
+        '7': '#039be5', // Peacock (dark theme)
+        '8': '#616161', // Graphite (dark theme)
+        '9': '#3f51b5', // Blueberry (dark theme)
+        '10': '#0b8043', // Basil (dark theme)
+        '11': '#d50000'  // Tomato (dark theme)
     };
 
     const color = colors[colorId] || colors['1']; // Default to blue if color not found

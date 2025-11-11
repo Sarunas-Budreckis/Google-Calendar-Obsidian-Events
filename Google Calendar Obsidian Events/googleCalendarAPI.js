@@ -186,11 +186,17 @@ class GoogleCalendarAPI {
             
             // Filter events to custom day boundaries
             const customDayEvents = DateUtils.getEventsForCustomDay(targetDate, allEvents);
-            
-            // Filter out events without summaries
+
+            // Filter out events without summaries AND exclude actual Sleep calendar events
+            // (Sleep boundary markers will be added separately)
             const validEvents = customDayEvents
-                .filter(event => event.summary && event.summary.trim() !== '');
-            
+                .filter(event => {
+                    if (!event.summary || event.summary.trim() === '') return false;
+                    // Exclude actual Sleep events from Google Calendar (not boundary markers)
+                    if (event.summary.toLowerCase().includes('sleep') && !event.isBoundary) return false;
+                    return true;
+                });
+
             // Add wake up and sleep times
             const eventsWithBoundaries = this.addDayBoundaries(targetDate, allEvents, validEvents);
             

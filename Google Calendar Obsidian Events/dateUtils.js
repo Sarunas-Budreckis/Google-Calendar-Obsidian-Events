@@ -1,7 +1,7 @@
 /**
  * Custom day boundary logic based on "Sleep" events
  * A "day" is defined as:
- * - Start: After the last "Sleep" event in the chosen day (or 12:01 AM if none)
+ * - Start: After the FIRST "Sleep" event > 2 hours that ends on the chosen day (or midnight if none)
  * - End: Before the first "Sleep" event in the subsequent day (or 5:00 AM next day if none)
  */
 
@@ -13,31 +13,31 @@ class DateUtils {
      * @returns {Date} - The start time for the custom day
      */
     static getDayStartTime(targetDate, events) {
-        // Default start time: 12:01 AM of target date
+        // Default start time: midnight of target date
         const defaultStart = new Date(targetDate);
-        defaultStart.setHours(0, 1, 0, 0);
+        defaultStart.setHours(0, 0, 0, 0);
 
-        // Find all "Sleep" events on the target date
-        const sleepEvents = this.findSleepEvents(targetDate, events);
-        
-        if (sleepEvents.length === 0) {
-            return defaultStart;
-        }
-
-        // Find the last "Sleep" event that ends on the target date
-        const lastSleepEvent = sleepEvents
+        // Find all "Sleep" events > 2 hours that END on the target date
+        // Note: We can't use findSleepEvents() because it filters by START date
+        const sleepEvents = events
             .filter(event => {
+                if (!event.summary || !event.summary.toLowerCase().includes('sleep')) {
+                    return false;
+                }
                 const endTime = this.getEventEndTime(event);
-                return this.isSameDay(endTime, targetDate);
+                const startTime = this.getEventStartTime(event);
+                const durationHours = (endTime - startTime) / (1000 * 60 * 60);
+                return durationHours > 2 && this.isSameDay(endTime, targetDate);
             })
             .sort((a, b) => {
                 const endTimeA = this.getEventEndTime(a);
                 const endTimeB = this.getEventEndTime(b);
-                return endTimeB - endTimeA; // Sort by end time, latest first
-            })[0];
+                return endTimeA - endTimeB; // Sort by end time, earliest first
+            });
 
-        if (lastSleepEvent) {
-            return this.getEventEndTime(lastSleepEvent);
+        // Return the end time of the FIRST sleep event > 2 hours
+        if (sleepEvents.length > 0) {
+            return this.getEventEndTime(sleepEvents[0]);
         }
 
         return defaultStart;
@@ -50,33 +50,45 @@ class DateUtils {
      * @returns {Date} - The end time for the custom day
      */
     static getDayEndTime(targetDate, events) {
+        // Get the day start time first
+        const dayStart = this.getDayStartTime(targetDate, events);
+
         // Default end time: 5:00 AM of next day
         const nextDay = new Date(targetDate);
         nextDay.setDate(nextDay.getDate() + 1);
         nextDay.setHours(5, 0, 0, 0);
 
-        // Find all "Sleep" events on the next day
-        const nextDayEvents = events.filter(event => {
-            const startTime = this.getEventStartTime(event);
-            return this.isSameDay(startTime, nextDay);
-        });
+        // Create an "evening cutoff" time (6:00 PM on target date)
+        const eveningCutoff = new Date(targetDate);
+        eveningCutoff.setHours(18, 0, 0, 0);
 
-        const sleepEvents = this.findSleepEvents(nextDay, nextDayEvents);
-        
-        if (sleepEvents.length === 0) {
-            return nextDay;
-        }
+        // Find all "Sleep" events that start AFTER the day start time
+        // Filter for sleep events that start either:
+        // 1. In the evening (after 6 PM) on the target date, OR
+        // 2. On the next calendar day
+        const sleepEvents = events
+            .filter(event => {
+                if (!event.summary || !event.summary.toLowerCase().includes('sleep')) {
+                    return false;
+                }
+                const startTime = this.getEventStartTime(event);
 
-        // Find the first "Sleep" event on the next day
-        const firstSleepEvent = sleepEvents
+                // Must be after the day start (wake up time)
+                if (startTime <= dayStart) {
+                    return false;
+                }
+
+                // Include if it's in the evening of target date OR on the next day
+                return startTime >= eveningCutoff || !this.isSameDay(startTime, targetDate);
+            })
             .sort((a, b) => {
                 const startTimeA = this.getEventStartTime(a);
                 const startTimeB = this.getEventStartTime(b);
                 return startTimeA - startTimeB; // Sort by start time, earliest first
-            })[0];
+            });
 
-        if (firstSleepEvent) {
-            return this.getEventStartTime(firstSleepEvent);
+        if (sleepEvents.length > 0) {
+            return this.getEventStartTime(sleepEvents[0]);
         }
 
         return nextDay;

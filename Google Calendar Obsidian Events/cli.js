@@ -7,9 +7,9 @@ const path = require('path');
 const EVENT_PATTERN = /^(\d{1,2}:\d{2}\s*[AP]M)\s*-\s*<span style="display: inline-block;[^>]*><\/span>\s*\*\*(.+?)\*\*/;
 
 const COLOR_MAP = {
-    '1': '#a4bdfc', '2': '#7ae7bf', '3': '#dbadff', '4': '#ff887c',
-    '5': '#fbd75b', '6': '#ffb878', '7': '#46d6db', '8': '#e1e1e1',
-    '9': '#5484ed', '10': '#51b749', '11': '#dc2127'
+    '1': '#828bc2', '2': '#33b679', '3': '#9e69af', '4': '#e67c73',
+    '5': '#f6bf26', '6': '#f4511e', '7': '#039be5', '8': '#616161',
+    '9': '#3f51b5', '10': '#0b8043', '11': '#d50000'
 };
 
 class CalendarCLI {
@@ -63,7 +63,13 @@ class CalendarCLI {
         }
     }
 
-    getColorSquare(colorId) {
+    getColorSquare(colorId, eventName = '') {
+        // Hardcoded override: Sleep and Wake Up events should always be grey (#7c7c7c)
+        const nameLower = eventName ? eventName.toLowerCase() : '';
+        if (nameLower.includes('sleep') || nameLower.includes('wake up')) {
+            return `<span style="display: inline-block; width: 12px; height: 12px; background-color: #7c7c7c; border-radius: 2px; margin-right: 6px; vertical-align: middle;"></span>`;
+        }
+
         // Hardcoded override: events without explicit color (using default calendar color) should be #00aaff
         let color;
         if (!colorId || colorId === '') {
@@ -78,7 +84,7 @@ class CalendarCLI {
         const time = this.formatTime(event.start);
         const name = event.summary || 'Untitled Event';
         const color = event.colorId || '';  // Empty string for default calendar color
-        const colorSquare = this.getColorSquare(color);
+        const colorSquare = this.getColorSquare(color, name);
         return `${time} - ${colorSquare} **${name}**`;
     }
 
