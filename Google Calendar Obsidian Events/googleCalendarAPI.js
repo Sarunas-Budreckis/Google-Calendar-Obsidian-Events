@@ -1,13 +1,19 @@
 const { google } = require('googleapis');
 const fs = require('fs').promises;
 const path = require('path');
+const http = require('http');
+const { URL } = require('url');
+const { exec } = require('child_process');
 require('dotenv').config();
+
+const AUTH_PING_PATH = '/__gcal_auth_ping';
 
 class GoogleCalendarAPI {
     constructor() {
         this.oauth2Client = null;
         this.calendar = null;
         this.tokenPath = path.join(__dirname, 'token.json');
+        this.lastAuth = null;
     }
 
     async initialize() {
@@ -72,11 +78,7 @@ class GoogleCalendarAPI {
             const isInteractive = process.stdin.isTTY;
 
             if (!isInteractive) {
-                // Not interactive - output error message for Obsidian
-                console.error('AUTHENTICATION_REQUIRED');
-                console.error('Token expired. Please run authentication manually:');
-                console.error('Open terminal and run: node "C:\\Users\\Sarunas Budreckis\\Documents\\Obsidian Vaults\\Sarunas Obsidian Vault\\Google Calendar Obsidian Events\\auth.js"');
-                return false;
+                return await this.authenticateViaLocalCallback();
             }
 
             // Generate auth URL
@@ -116,6 +118,215 @@ class GoogleCalendarAPI {
             console.error('Authentication failed:', error.message);
             return false;
         }
+    }
+
+    async openAuthInBrowser(authUrl) {
+        if (process.platform !== 'win32') {
+            return;
+        }
+        try {
+            exec(`start "" "${authUrl}"`);
+        } catch (error) {
+            // Non-fatal: fall back to printed link
+        }
+    }
+
+    async isAuthServerRunning(port) {
+        return await new Promise((resolve) => {
+            const req = http.request({
+                hostname: '127.0.0.1',
+                port,
+                path: AUTH_PING_PATH,
+                method: 'GET',
+                timeout: 800
+            }, (res) => {
+                const ok = res.statusCode === 200 && res.headers['x-gcal-auth'] === '1';
+                res.on('data', () => {});
+                res.on('end', () => resolve(ok));
+            });
+
+            req.on('error', () => resolve(false));
+            req.on('timeout', () => {
+                req.destroy();
+                resolve(false);
+            });
+            req.end();
+        });
+    }
+
+    async startAuthServer(port, expectedPath) {
+        return await new Promise((resolve) => {
+            const server = http.createServer(async (req, res) => {
+                try {
+                    const reqUrl = new URL(req.url, `http://localhost:${port}`);
+                    if (reqUrl.pathname === AUTH_PING_PATH) {
+                        res.writeHead(200, { 'Content-Type': 'text/plain', 'x-gcal-auth': '1' });
+                        res.end('OK');
+                        return;
+                    }
+
+                    if (reqUrl.pathname !== expectedPath) {
+                        res.writeHead(404, { 'Content-Type': 'text/plain' });
+                        res.end('Not Found');
+                        return;
+                    }
+
+                    const code = reqUrl.searchParams.get('code');
+                    if (!code) {
+                        res.writeHead(400, { 'Content-Type': 'text/plain' });
+                        res.end('Missing "code" parameter.');
+                        return;
+                    }
+
+                    const { tokens } = await this.oauth2Client.getToken(code);
+                    this.oauth2Client.setCredentials(tokens);
+                    await this.saveToken(tokens);
+                    this.lastAuth = null;
+
+                    res.writeHead(200, { 'Content-Type': 'text/html' });
+                    res.end('<html><body><h2>Authentication complete.</h2><p>You can close this tab.</p></body></html>');
+                    server.close();
+                    resolve({ server, authenticated: true });
+                } catch (error) {
+                    res.writeHead(500, { 'Content-Type': 'text/plain' });
+                    res.end('Authentication failed. Check the app logs.');
+                    server.close();
+                    resolve({ server, authenticated: false });
+                }
+            });
+
+            server.on('error', (error) => {
+                if (error.code === 'EADDRINUSE') {
+                    resolve(null);
+                    return;
+                }
+                resolve({ server: null, error });
+            });
+
+            server.listen(port, '127.0.0.1', () => resolve({ server }));
+        });
+    }
+
+    async authenticateViaLocalCallback() {
+        try {
+            const redirectUri = process.env.GOOGLE_REDIRECT_URI;
+            if (!redirectUri) {
+                console.error('AUTHENTICATION_REQUIRED');
+                console.error('Missing GOOGLE_REDIRECT_URI in .env');
+                this.lastAuth = null;
+                return false;
+            }
+
+            let redirect;
+            try {
+                redirect = new URL(redirectUri);
+            } catch (error) {
+                console.error('AUTHENTICATION_REQUIRED');
+                console.error('Invalid GOOGLE_REDIRECT_URI:', redirectUri);
+                this.lastAuth = null;
+                return false;
+            }
+
+            const expectedPath = redirect.pathname || '/oauth2callback';
+            const basePort = redirect.port ? Number(redirect.port) : 80;
+            if (!Number.isFinite(basePort) || basePort <= 0) {
+                console.error('AUTHENTICATION_REQUIRED');
+                console.error('Invalid GOOGLE_REDIRECT_URI port:', redirectUri);
+                this.lastAuth = null;
+                return false;
+            }
+
+            const candidatePorts = [basePort, basePort + 1, basePort + 2, basePort + 3, basePort + 4];
+            let selectedPort = null;
+            let serverHandle = null;
+            let reused = false;
+            let fallbackNote = null;
+
+            for (const port of candidatePorts) {
+                const isRunning = await this.isAuthServerRunning(port);
+                if (isRunning) {
+                    selectedPort = port;
+                    reused = true;
+                    break;
+                }
+
+                const serverResult = await this.startAuthServer(port, expectedPath);
+                if (!serverResult) {
+                    continue;
+                }
+                if (serverResult.error) {
+                    console.error('AUTHENTICATION_REQUIRED');
+                    console.error('Failed to start local callback server:', serverResult.error.message);
+                    this.lastAuth = null;
+                    return false;
+                }
+                selectedPort = port;
+                serverHandle = serverResult.server;
+                break;
+            }
+
+            if (!selectedPort) {
+                console.error('AUTHENTICATION_REQUIRED');
+                console.error('Failed to find an available localhost port for auth callback.');
+                this.lastAuth = null;
+                return false;
+            }
+
+            if (selectedPort !== basePort) {
+                fallbackNote = `Using alternate port ${selectedPort} (base ${basePort} unavailable). Ensure this redirect URI is authorized in Google Cloud.`;
+            }
+
+            const effectiveRedirect = new URL(redirectUri);
+            effectiveRedirect.port = String(selectedPort);
+            const effectiveRedirectUri = effectiveRedirect.toString();
+            this.oauth2Client.redirectUri = effectiveRedirectUri;
+
+            const authUrl = this.oauth2Client.generateAuthUrl({
+                access_type: 'offline',
+                scope: ['https://www.googleapis.com/auth/calendar.readonly']
+            });
+
+            // Output a clickable link for Obsidian
+            console.log('AUTHENTICATION_REQUIRED');
+            console.log(`Click to authorize Google Calendar: [Open Google Auth](${authUrl})`);
+            console.log('If the link does not open, copy this URL into a browser:');
+            console.log(authUrl);
+
+            this.lastAuth = {
+                url: authUrl,
+                redirectUri: effectiveRedirectUri,
+                port: selectedPort,
+                path: expectedPath,
+                reused,
+                note: fallbackNote,
+                error: null
+            };
+
+            await this.openAuthInBrowser(authUrl);
+
+            if (reused || !serverHandle) {
+                return false;
+            }
+
+            // Safety timeout in case the user never completes auth
+            setTimeout(() => {
+                try {
+                    serverHandle.close();
+                } catch (error) {
+                    // ignore
+                }
+            }, 5 * 60 * 1000);
+
+            return false;
+        } catch (error) {
+            console.error('Authentication failed:', error.message);
+            this.lastAuth = null;
+            return false;
+        }
+    }
+
+    getPendingAuth() {
+        return this.lastAuth;
     }
 
     async getEvents(startDate, endDate, retryCount = 0) {
@@ -159,6 +370,8 @@ class GoogleCalendarAPI {
                     console.log('Re-authentication successful. Retrying request...\n');
                     // Retry the request once after successful authentication
                     return await this.getEvents(startDate, endDate, retryCount + 1);
+                } else if (this.lastAuth) {
+                    throw new Error('AUTH_PENDING');
                 } else {
                     throw new Error('Re-authentication failed');
                 }
@@ -203,6 +416,9 @@ class GoogleCalendarAPI {
             return eventsWithBoundaries;
                 
         } catch (error) {
+            if (error && error.message === 'AUTH_PENDING') {
+                throw error;
+            }
             console.error('Error fetching events for custom day:', error.message);
             throw error;
         }

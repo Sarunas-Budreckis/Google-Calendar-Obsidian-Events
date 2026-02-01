@@ -18,7 +18,9 @@ Fetch Google Calendar events and insert them into Obsidian notes with custom day
 
 1. **Install**: `npm install`
 2. **Configure**: Create `.env` with Google OAuth credentials (see below)
-3. **Authenticate**: `node main.js`
+3. **Authenticate**:
+   - **Obsidian/Templater** (non-interactive): Run the template once; an auth link is appended to the note. Click it, authorize, then re-run the template.
+   - **Terminal**: `node main.js` and follow the prompt
 4. **Setup Template**: See "Template Setup" section below
 5. **Test**: `node setup-check.js`
 
@@ -28,7 +30,7 @@ Create `.env` file:
 ```
 GOOGLE_CLIENT_ID=your_client_id
 GOOGLE_CLIENT_SECRET=your_client_secret
-GOOGLE_REDIRECT_URI=http://localhost:3000/oauth2callback
+GOOGLE_REDIRECT_URI=http://localhost:3001/oauth2callback
 CALENDAR_ID=your_calendar_id
 ```
 
@@ -164,7 +166,9 @@ node fix-lavender-to-828bc2.js
 
 ## Troubleshooting
 
-- **Authentication**: Run `node main.js` to re-authenticate
+- **Authentication**:
+  - **Obsidian/Templater**: Re-run the template and click the auth link appended to the note
+  - **Terminal**: Run `node main.js` to re-authenticate
 - **Missing Events**: Check `CALENDAR_ID` in `.env`
 - **Template Issues**: Ensure template is in Templater folder and reload Obsidian after updates
 - **Setup Check**: Run `node setup-check.js` to diagnose issues
