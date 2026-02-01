@@ -141,52 +141,48 @@ class CalendarCLI {
             return;
         }
 
-        // Remove all existing event lines and insert fresh ones
-        const firstEventIndex = existingIndices[0];
-        const indicesToRemove = new Set(existingIndices);
-        const filteredLines = lines.filter((_, idx) => !indicesToRemove.has(idx));
+        // Replace/delete existing events
+        const updatedLines = [...lines];
+        let replaced = 0, deleted = 0;
 
-        const insertPosition = firstEventIndex;
-        filteredLines.splice(insertPosition, 0, ...newEventLines);
+        for (let i = 0; i < existingIndices.length; i++) {
+            const lineIndex = existingIndices[i];
+            if (i < newEventLines.length) {
+                updatedLines[lineIndex] = newEventLines[i];
+                replaced++;
+            } else {
+                updatedLines[lineIndex] = null;
+                deleted++;
+            }
+        }
+
+        const filteredLines = updatedLines.filter(line => line !== null);
+
+        // Add extra new events if any
+        let added = 0;
+        if (newEventLines.length > existingIndices.length) {
+            const lastEventIndex = existingIndices[existingIndices.length - 1];
+            let insertPosition = lastEventIndex;
+
+            // Adjust for deletions
+            for (let i = 0; i < lastEventIndex; i++) {
+                if (updatedLines[i] === null) insertPosition--;
+            }
+            insertPosition++;
+
+            const extraEvents = newEventLines.slice(existingIndices.length);
+            filteredLines.splice(insertPosition, 0, ...extraEvents);
+            added = extraEvents.length;
+        }
 
         // Write file preserving trailing newline
         const hasTrailingNewline = currentContent.endsWith('\n');
         const newContent = filteredLines.join('\n') + (hasTrailingNewline ? '\n' : '');
         await fs.writeFile(filePath, newContent, 'utf8');
 
-        const summary = `replaced ${existingIndices.length} lines with ${newEventLines.length} new events`;
+        const summary = `${replaced} updated, ${deleted} deleted, ${added} added`;
         this.log(`=== SUCCESS: ${summary} ===\n`);
         console.log(`SUCCESS:${summary}`);
-    }
-
-    async appendAuthLink(filePath, authInfo) {
-        try {
-            const currentContent = await fs.readFile(filePath, 'utf8');
-            if (currentContent.includes('Open Google Auth') || currentContent.includes(authInfo.url)) {
-                this.log('Auth link already present in file; not appending.');
-                console.log('AUTH_LINK_ALREADY_PRESENT');
-                return;
-            }
-
-            const lines = [];
-            lines.push('Google Calendar authentication required.');
-            lines.push(`Open Google Auth: [Open Google Auth](${authInfo.url})`);
-            if (authInfo.note) {
-                lines.push(authInfo.note);
-            }
-            if (authInfo.error) {
-                lines.push(`Auth server error: ${authInfo.error}`);
-            }
-
-            const suffix = (currentContent.endsWith('\n') ? '' : '\n') + lines.join('\n') + '\n';
-            await fs.writeFile(filePath, currentContent + suffix, 'utf8');
-
-            this.log('Auth link appended to file.');
-            console.log('AUTH_LINK_APPENDED');
-        } catch (error) {
-            this.log('Failed to append auth link:', error.message);
-            console.error('Failed to append auth link:', error.message);
-        }
     }
 
     async run(dateString, filePath = null) {
@@ -218,17 +214,7 @@ class CalendarCLI {
 
         // Get events
         this.log('Fetching events...');
-        let events;
-        try {
-            events = await this.calendarAPI.getEventsForCustomDay(targetDate);
-        } catch (error) {
-            const authInfo = this.calendarAPI.getPendingAuth();
-            if (filePath && authInfo && authInfo.url) {
-                await this.appendAuthLink(filePath, authInfo);
-                return;
-            }
-            throw error;
-        }
+        const events = await this.calendarAPI.getEventsForCustomDay(targetDate);
 
         // Update file or output events
         if (filePath) {

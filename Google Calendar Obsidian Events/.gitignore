@@ -26,8 +26,6 @@ Thumbs.db
 # IDE files
 .vscode/
 .idea/
-.claude/
-.bmad/
 *.swp
 *.swo
 *~
