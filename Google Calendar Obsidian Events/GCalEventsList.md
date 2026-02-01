@@ -1,63 +1,68 @@
 <%*
-// Google Calendar Events Template
-// HTML modal with date picker, defaults to previous day if before 5am
-
-// Debug helper - logs to Obsidian Console only
-// (File logging via fs.appendFileSync doesn't work in Templater due to sandboxing)
-function debug(...args) {
-    console.log('[GCal Template]', ...args);
-}
-
-debug('=== NEW TEMPLATE EXECUTION STARTED ===');
-
 const GCAL_BLOCK_START = '<!-- GCAL_EVENTS_START -->';
 const GCAL_BLOCK_END = '<!-- GCAL_EVENTS_END -->';
+const DAILY_NOTE_RE = /^\d{4}[-/]\d{1,2}[-/]\d{1,2}$/;
+const TIME_PATTERN = /^(\d{1,2}:\d{2}\s*[AP]M)\s*-\s*(.+?)\s*-\s*COLOR:(\d*)$/;
+const PROJECT_PATH = "C:\\Users\\Sarunas Budreckis\\Documents\\Obsidian Vaults\\Sarunas Obsidian Vault\\Google Calendar Obsidian Events";
+const COLOR_MAP = {
+    '1': '#828bc2', '2': '#33b679', '3': '#9e69af', '4': '#e67c73',
+    '5': '#f6bf26', '6': '#f4511e', '7': '#039be5', '8': '#616161',
+    '9': '#3f51b5', '10': '#0b8043', '11': '#d50000'
+};
 
-// Get default date - check if we're in a daily note
-let defaultDate;
+const debug = (...args) => console.log('[GCal Template]', ...args);
+debug('=== NEW TEMPLATE EXECUTION STARTED ===');
 
-// Check if current file is a daily note (common patterns: YYYY-MM-DD, YYYY/MM/DD, etc.)
-const currentFile = tp.file.title;
-const dailyNotePattern = /^\d{4}[-/]\d{1,2}[-/]\d{1,2}$/;
-
-if (dailyNotePattern.test(currentFile)) {
-    // We're in a daily note, use that date
-    const dateStr = currentFile.replace(/\//g, '-');
-    const parts = dateStr.split('-');
-    if (parts.length === 3) {
-        // Ensure proper formatting (YYYY-MM-DD)
-        const year = parts[0];
-        const month = parts[1].padStart(2, '0');
-        const day = parts[2].padStart(2, '0');
-        defaultDate = new Date(`${year}-${month}-${day}T00:00:00`);
-    } else {
-        // Fallback to today if parsing fails
-        defaultDate = new Date();
-    }
-} else {
-    // Not a daily note, use today (previous day if before 5am)
-    const now = new Date();
-    defaultDate = now.getHours() < 5 ? new Date(now.getTime() - 24 * 60 * 60 * 1000) : now;
-}
-
-const defaultDateString = defaultDate.getFullYear() + '-' + 
-  String(defaultDate.getMonth() + 1).padStart(2, '0') + '-' + 
-  String(defaultDate.getDate()).padStart(2, '0');
-
-// Show date picker modal
-const targetDate = await showDatePicker(defaultDateString);
+const targetDate = await showDatePicker(getDefaultDateString());
 if (!targetDate) return;
 
-// Helper function to show date picker modal
-async function showDatePicker(defaultDate) {
-  // HTML template for date picker modal
-  // Determine label text based on context
-  const isDailyNote = /^\d{4}[-/]\d{1,2}[-/]\d{1,2}$/.test(tp.file.title);
-  const labelText = isDailyNote ? 
-    `Select date (press Enter for ${defaultDate}):` : 
-    'Select date (press Enter for default):';
+try {
+    const eventsOutput = await runCli(targetDate);
+    if (!eventsOutput || !eventsOutput.trim()) {
+        new Notice('[GCal] No events found', 3000);
+        return '';
+    }
 
-  const modalHTML = `
+    const formatted = formatEvents(eventsOutput.trim().split('\n'));
+    scheduleCleanupDuplicateLogs();
+    return buildEventsSection(formatted);
+} catch (error) {
+    debug(`Error: ${error.message}`);
+    new Notice(`[GCal Error] ${error.message}`, 10000);
+    return '';
+}
+
+function getDefaultDateString() {
+    const dailyDate = parseDailyNoteDate(tp.file.title);
+    const date = dailyDate || getTodayAdjusted();
+    return formatDate(date);
+}
+
+function parseDailyNoteDate(title) {
+    if (!DAILY_NOTE_RE.test(title)) return null;
+    const parts = title.replace(/\//g, '-').split('-');
+    if (parts.length !== 3) return null;
+    const [year, month, day] = parts;
+    const date = new Date(`${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}T00:00:00`);
+    return isNaN(date.getTime()) ? null : date;
+}
+
+function getTodayAdjusted() {
+    const now = new Date();
+    return now.getHours() < 5 ? new Date(now.getTime() - 24 * 60 * 60 * 1000) : now;
+}
+
+function formatDate(date) {
+    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+}
+
+async function showDatePicker(defaultDate) {
+    const isDailyNote = DAILY_NOTE_RE.test(tp.file.title);
+    const labelText = isDailyNote
+        ? `Select date (press Enter for ${defaultDate}):`
+        : 'Select date (press Enter for default):';
+
+    const modalHTML = `
     <style>
   #date-picker::-webkit-calendar-picker-indicator {
     display: none;
@@ -74,7 +79,6 @@ async function showDatePicker(defaultDate) {
       type="date" 
       id="date-picker" 
       value="${defaultDate}"
-      
       onclick="this.showPicker()"
       style="width: 100%; padding: 8px; font-size: 14px; border: 1px solid var(--background-modifier-border); border-radius: 4px; background: var(--background-primary); color: var(--text-normal);"
     />
@@ -86,59 +90,56 @@ async function showDatePicker(defaultDate) {
 </div>
   `;
 
-  return new Promise((resolve) => {
-    const modal = document.createElement('div');
-    modal.innerHTML = modalHTML;
-    modal.style.cssText = 'position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: var(--background-primary); border: 1px solid var(--background-modifier-border); border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.3); z-index: 1000;';
-    
-    const backdrop = document.createElement('div');
-    backdrop.style.cssText = 'position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); z-index: 999;';
-    
-    document.body.appendChild(backdrop);
-    document.body.appendChild(modal);
-    
-    const dateInput = modal.querySelector('#date-picker');
-    const confirmBtn = modal.querySelector('#confirm-btn');
-    const cancelBtn = modal.querySelector('#cancel-btn');
-    
-    const cleanup = () => {
-      backdrop.remove();
-      modal.remove();
-    };
-    
-    const confirm = () => {
-      resolve(dateInput.value);
-      cleanup();
-    };
-    
-    const cancel = () => {
-      resolve(null);
-      cleanup();
-    };
-    
-    setTimeout(() => dateInput.focus(), 100);
-    
-    dateInput.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') confirm();
-      else if (e.key === 'Escape') cancel();
+    return new Promise((resolve) => {
+        const modal = document.createElement('div');
+        modal.innerHTML = modalHTML;
+        modal.style.cssText = 'position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: var(--background-primary); border: 1px solid var(--background-modifier-border); border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.3); z-index: 1000;';
+
+        const backdrop = document.createElement('div');
+        backdrop.style.cssText = 'position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); z-index: 999;';
+
+        document.body.appendChild(backdrop);
+        document.body.appendChild(modal);
+
+        const dateInput = modal.querySelector('#date-picker');
+        const confirmBtn = modal.querySelector('#confirm-btn');
+        const cancelBtn = modal.querySelector('#cancel-btn');
+
+        const cleanup = () => {
+            backdrop.remove();
+            modal.remove();
+        };
+
+        const confirm = () => {
+            resolve(dateInput.value);
+            cleanup();
+        };
+
+        const cancel = () => {
+            resolve(null);
+            cleanup();
+        };
+
+        setTimeout(() => dateInput.focus(), 100);
+
+        dateInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') confirm();
+            else if (e.key === 'Escape') cancel();
+        });
+
+        confirmBtn.addEventListener('click', confirm);
+        cancelBtn.addEventListener('click', cancel);
+        backdrop.addEventListener('click', cancel);
     });
-    
-    confirmBtn.addEventListener('click', confirm);
-    cancelBtn.addEventListener('click', cancel);
-    backdrop.addEventListener('click', cancel);
-  });
 }
 
-try {
-    // Execute CLI command WITHOUT --file parameter (CLI will just output event data)
+async function runCli(dateString) {
     const { exec } = require('child_process');
-    const projectPath = "C:\\Users\\Sarunas Budreckis\\Documents\\Obsidian Vaults\\Sarunas Obsidian Vault\\Google Calendar Obsidian Events";
-    const command = `node cli.js "${targetDate}"`;
-
+    const command = `node cli.js "${dateString}"`;
     debug(`Executing: ${command}`);
 
-    const eventsOutput = await new Promise((resolve, reject) => {
-        exec(command, { cwd: projectPath }, (error, stdout, stderr) => {
+    return new Promise((resolve, reject) => {
+        exec(command, { cwd: PROJECT_PATH }, (error, stdout, stderr) => {
             debug(`stdout: ${stdout}`);
             debug(`stderr: ${stderr}`);
 
@@ -160,73 +161,36 @@ try {
             resolve(stdout);
         });
     });
-
-    if (!eventsOutput || !eventsOutput.trim()) {
-        new Notice('[GCal] No events found', 3000);
-        return '';
-    }
-
-    // Parse CLI output into formatted event lines
-    const eventLines = eventsOutput.trim().split('\n');
-    const formatted = formatEvents(eventLines);
-
-    scheduleCleanupDuplicateLogs();
-    return buildEventsSection(formatted);
-
-} catch (error) {
-    // Handle errors
-    debug(`Error: ${error.message}`);
-    new Notice(`[GCal Error] ${error.message}`, 10000);
-    return ''; // Return empty string to avoid appending error text
 }
 
-// Helper function to format events
-function formatEvents(eventsList) {
+function formatEvents(lines) {
     let output = '';
-
-    eventsList.forEach(event => {
-        if (event.trim()) {
-            // Parse time, name, and color from CLI output
-            // Format: "04:00 PM - Event Name - COLOR:1" or "04:00 PM - BOUNDARY:Wake Up - COLOR:" (empty for default)
-            const timePattern = /^(\d{1,2}:\d{2}\s*[AP]M)\s*-\s*(.+?)\s*-\s*COLOR:(\d*)$/;
-            const match = event.trim().match(timePattern);
-
-            if (match) {
-                const time = match[1];
-                let name = match[2];
-                const colorId = match[3];  // Can be empty string for default calendar color
-
-                // Remove BOUNDARY: prefix
-                if (name.startsWith('BOUNDARY:')) {
-                    name = name.replace('BOUNDARY:', '');
-                }
-
-                // Get color square HTML (pass event name for Sleep detection)
-                const colorSquare = getColorSquare(colorId, name);
-
-                output += `${time} - ${colorSquare} **${name}**\n`;
-            } else {
-                // Fallback for events without proper format
-                output += `**${event.trim()}**\n`;
-            }
+    for (const line of lines) {
+        if (!line.trim()) continue;
+        const match = line.trim().match(TIME_PATTERN);
+        if (!match) {
+            output += `**${line.trim()}**\n`;
+            continue;
         }
-    });
-
+        const time = match[1];
+        let name = match[2];
+        const colorId = match[3];
+        if (name.startsWith('BOUNDARY:')) {
+            name = name.replace('BOUNDARY:', '');
+        }
+        const colorSquare = getColorSquare(colorId, name);
+        output += `${time} - ${colorSquare} **${name}**\n`;
+    }
     return output;
 }
 
 function buildEventsSection(formattedEvents) {
-    const sectionLines = [];
-    sectionLines.push(GCAL_BLOCK_START);
-    sectionLines.push(formattedEvents.trimEnd());
-    sectionLines.push(GCAL_BLOCK_END);
-    return sectionLines.join('\n');
+    return [GCAL_BLOCK_START, formattedEvents.trimEnd(), GCAL_BLOCK_END].join('\n');
 }
 
 function extractAuthUrl(stdout, stderr) {
     const combined = `${stdout || ''}\n${stderr || ''}`;
-    const lines = combined.split('\n');
-    for (const line of lines) {
+    for (const line of combined.split('\n')) {
         if (line.startsWith('AUTH_URL:')) {
             return line.slice('AUTH_URL:'.length).trim();
         }
@@ -236,11 +200,7 @@ function extractAuthUrl(stdout, stderr) {
 
 function insertAuthBlock(authUrl) {
     const currentFile = app.vault.getAbstractFileByPath(tp.file.path(true));
-    const blockLines = [];
-    blockLines.push(GCAL_BLOCK_START);
-    blockLines.push(`Open Google Auth: [Open Google Auth](${authUrl})`);
-    blockLines.push(GCAL_BLOCK_END);
-    const block = blockLines.join('\n');
+    const block = [GCAL_BLOCK_START, `Open Google Auth: [Open Google Auth](${authUrl})`, GCAL_BLOCK_END].join('\n');
 
     app.vault.read(currentFile).then((content) => {
         const spacer = content.endsWith('\n') ? '' : '\n';
@@ -268,14 +228,12 @@ function scheduleCleanupDuplicateLogs() {
             }
             if (blocks.length <= 1) return;
 
-            // Keep the first (most recent, because button prepends)
             let updated = content;
             for (let i = blocks.length - 1; i >= 1; i--) {
                 const [s, e] = blocks[i];
                 updated = updated.slice(0, s) + updated.slice(e);
             }
 
-            // Keep a single newline after the kept block; trim only if double
             const keepEnd = blocks[0][1];
             if (updated.slice(keepEnd, keepEnd + 2) === '\n\n') {
                 updated = updated.slice(0, keepEnd) + updated.slice(keepEnd + 1);
@@ -286,36 +244,17 @@ function scheduleCleanupDuplicateLogs() {
         }
     }, 300);
 }
-// Helper function to get color square HTML
+
 function getColorSquare(colorId, eventName = '') {
-    // Hardcoded override: Sleep and Wake Up events should always be grey (#7c7c7c)
     const nameLower = eventName ? eventName.toLowerCase() : '';
     if (nameLower.includes('sleep') || nameLower.includes('wake up')) {
         return `<span style="display: inline-block; width: 12px; height: 12px; background-color: #7c7c7c; border-radius: 2px; margin-right: 6px; vertical-align: middle;"></span>`;
     }
 
-    // Hardcoded override: events without explicit color (using default calendar color) should be #00aaff
-    if (!colorId || colorId === '') {
-        return `<span style="display: inline-block; width: 12px; height: 12px; background-color: #00aaff; border-radius: 2px; margin-right: 6px; vertical-align: middle;"></span>`;
-    }
-
-    const colors = {
-        '1': '#828bc2', // Lavender (dark theme)
-        '2': '#33b679', // Sage (dark theme)
-        '3': '#9e69af', // Grape (dark theme)
-        '4': '#e67c73', // Flamingo (dark theme)
-        '5': '#f6bf26', // Banana (dark theme)
-        '6': '#f4511e', // Tangerine (dark theme)
-        '7': '#039be5', // Peacock (dark theme)
-        '8': '#616161', // Graphite (dark theme)
-        '9': '#3f51b5', // Blueberry (dark theme)
-        '10': '#0b8043', // Basil (dark theme)
-        '11': '#d50000'  // Tomato (dark theme)
-    };
-
-    const color = colors[colorId] || colors['1']; // Default to blue if color not found
-
+    const color = colorId ? (COLOR_MAP[colorId] || COLOR_MAP['1']) : '#00aaff';
     return `<span style="display: inline-block; width: 12px; height: 12px; background-color: ${color}; border-radius: 2px; margin-right: 6px; vertical-align: middle;"></span>`;
 }
-
 %>
+<!-- GCAL_EVENTS_START -->
+Open Google Auth: [Open Google Auth](https://accounts.google.com/o/oauth2/v2/auth?access_type=offline&scope=https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fcalendar.readonly&response_type=code&client_id=572188547705-1n3eb88aoedt0pk6mfqv6o82hutmbjc6.apps.googleusercontent.com&redirect_uri=http%3A%2F%2Flocalhost%3A3001%2Foauth2callback)
+<!-- GCAL_EVENTS_END -->

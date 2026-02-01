@@ -18,7 +18,9 @@ Fetch Google Calendar events and insert them into Obsidian notes with custom day
 
 1. **Install**: `npm install`
 2. **Configure**: Create `.env` with Google OAuth credentials (see below)
-3. **Authenticate**: `node main.js`
+3. **Authenticate**:
+   - **Obsidian/Templater**: Run the button once; it will open a browser and add an auth link block if needed
+   - **Terminal**: `node main.js`
 4. **Setup Template**: See "Template Setup" section below
 5. **Test**: `node setup-check.js`
 
@@ -28,7 +30,7 @@ Create `.env` file:
 ```
 GOOGLE_CLIENT_ID=your_client_id
 GOOGLE_CLIENT_SECRET=your_client_secret
-GOOGLE_REDIRECT_URI=http://localhost:3000/oauth2callback
+GOOGLE_REDIRECT_URI=http://localhost:3001/oauth2callback
 CALENDAR_ID=your_calendar_id
 ```
 
@@ -49,10 +51,13 @@ Copy-Item "Google Calendar Obsidian Events\GCalEventsList.md" "Templates\GCalEve
 
 ### In Obsidian
 
-Create a button with the Buttons plugin:
-- **Button Text**: "📅 Get Calendar Events"
-- **Action**: "Templater: Insert Template"
-- **Template**: Select `GCalEventsList`
+Create a button with the Buttons plugin (prepend so the latest log is first):
+```button
+name 📅 Get Calendar Events
+type prepend template
+action GCalEventsList
+templater true
+```
 
 ### From Terminal
 
@@ -87,6 +92,15 @@ Clean event listing with color squares and wake up/sleep times:
 02:00 PM - 🟨 **Lunch**            (dark theme colors)
 01:00 AM - ⬛ **Sleep**             (grey #7c7c7c)
 ```
+
+**Log Markers:**
+The template writes events between:
+```
+<!-- GCAL_EVENTS_START -->
+...
+<!-- GCAL_EVENTS_END -->
+```
+If multiple blocks exist (e.g., repeated runs), older ones are removed automatically.
 
 **Color Scheme:**
 - **Wake Up/Sleep**: Grey (#7c7c7c) - hardcoded for boundary markers
@@ -164,7 +178,9 @@ node fix-lavender-to-828bc2.js
 
 ## Troubleshooting
 
-- **Authentication**: Run `node main.js` to re-authenticate
+- **Authentication**:
+  - **Obsidian/Templater**: Re-run the button; it will open the browser and insert an auth link block if needed
+  - **Terminal**: Run `node main.js` to re-authenticate
 - **Missing Events**: Check `CALENDAR_ID` in `.env`
 - **Template Issues**: Ensure template is in Templater folder and reload Obsidian after updates
 - **Setup Check**: Run `node setup-check.js` to diagnose issues

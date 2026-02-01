@@ -7,6 +7,9 @@ const { exec } = require('child_process');
 require('dotenv').config();
 
 const AUTH_PING_PATH = '/__gcal_auth_ping';
+const AUTH_SCOPE = ['https://www.googleapis.com/auth/calendar.readonly'];
+const AUTH_TIMEOUT_MS = 5 * 60 * 1000;
+const AUTH_PORT_SCAN = 4;
 
 class GoogleCalendarAPI {
     constructor() {
@@ -18,30 +21,19 @@ class GoogleCalendarAPI {
 
     async initialize() {
         try {
-            // Load OAuth credentials from environment
-            const credentials = {
-                client_id: process.env.GOOGLE_CLIENT_ID,
-                client_secret: process.env.GOOGLE_CLIENT_SECRET,
-                redirect_uris: [process.env.GOOGLE_REDIRECT_URI]
-            };
-
-            if (!credentials.client_id || !credentials.client_secret) {
+            const { GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_REDIRECT_URI } = process.env;
+            if (!GOOGLE_CLIENT_ID || !GOOGLE_CLIENT_SECRET) {
                 throw new Error('Google OAuth credentials not found. Please check your .env file.');
             }
 
-            // Create OAuth2 client
             this.oauth2Client = new google.auth.OAuth2(
-                credentials.client_id,
-                credentials.client_secret,
-                credentials.redirect_uris[0]
+                GOOGLE_CLIENT_ID,
+                GOOGLE_CLIENT_SECRET,
+                GOOGLE_REDIRECT_URI
             );
 
-            // Try to load existing token
             await this.loadToken();
-            
-            // Initialize Calendar API
             this.calendar = google.calendar({ version: 'v3', auth: this.oauth2Client });
-
             return true;
         } catch (error) {
             console.error('Failed to initialize Google Calendar API:', error.message);
@@ -69,35 +61,25 @@ class GoogleCalendarAPI {
 
     async authenticate() {
         try {
-            // Check if we already have valid credentials
             if (this.oauth2Client.credentials && this.oauth2Client.credentials.access_token) {
                 return true;
             }
 
-            // Check if running in non-interactive mode (no stdin)
-            const isInteractive = process.stdin.isTTY;
-
-            if (!isInteractive) {
+            if (!process.stdin.isTTY) {
                 return await this.authenticateViaLocalCallback();
             }
 
-            // Generate auth URL
             const authUrl = this.oauth2Client.generateAuthUrl({
                 access_type: 'offline',
-                scope: ['https://www.googleapis.com/auth/calendar.readonly']
+                scope: AUTH_SCOPE
             });
 
             console.log('Authorize this app by visiting this url:', authUrl);
             console.log('After authorization, you will be redirected to a localhost URL.');
             console.log('Copy the "code" parameter from the URL and paste it here.');
 
-            // In a real Obsidian environment, this would need to be handled differently
-            // For now, we'll simulate getting the code
             const readline = require('readline');
-            const rl = readline.createInterface({
-                input: process.stdin,
-                output: process.stdout
-            });
+            const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
 
             return new Promise((resolve) => {
                 rl.question('Enter the authorization code: ', async (code) => {
@@ -172,11 +154,7 @@ class GoogleCalendarAPI {
                         res.end('Missing "code" parameter.');
                         return;
                     }
-                    const { tokens } = await this.oauth2Client.getToken(code);
-                    this.oauth2Client.setCredentials(tokens);
-                    await this.saveToken(tokens);
-                    this.lastAuth = null;
-
+                    await this.exchangeToken(code);
                     res.writeHead(200, { 'Content-Type': 'text/html' });
                     res.end('<html><body><h2>Authentication complete.</h2><p>You can close this tab.</p></body></html>');
                     server.close();
@@ -203,92 +181,29 @@ class GoogleCalendarAPI {
 
     async authenticateViaLocalCallback() {
         try {
-            const redirectUri = process.env.GOOGLE_REDIRECT_URI;
-            if (!redirectUri) {
-                console.error('AUTHENTICATION_REQUIRED');
-                console.error('Missing GOOGLE_REDIRECT_URI in .env');
-                this.lastAuth = null;
-                return false;
-            }
+            const { redirect, expectedPath, basePort } = this.parseRedirectUri();
+            if (!redirect) return false;
 
-            let redirect;
-            try {
-                redirect = new URL(redirectUri);
-            } catch (error) {
-                console.error('AUTHENTICATION_REQUIRED');
-                console.error('Invalid GOOGLE_REDIRECT_URI:', redirectUri);
-                this.lastAuth = null;
-                return false;
-            }
+            const { selectedPort, serverHandle, reused, fallbackNote } = await this.findAuthPort(basePort, expectedPath);
+            if (!selectedPort) return false;
 
-            const expectedPath = redirect.pathname || '/oauth2callback';
-            const basePort = redirect.port ? Number(redirect.port) : 80;
-            if (!Number.isFinite(basePort) || basePort <= 0) {
-                console.error('AUTHENTICATION_REQUIRED');
-                console.error('Invalid GOOGLE_REDIRECT_URI port:', redirectUri);
-                this.lastAuth = null;
-                return false;
-            }
-
-            const candidatePorts = [basePort, basePort + 1, basePort + 2, basePort + 3, basePort + 4];
-            let selectedPort = null;
-            let serverHandle = null;
-            let reused = false;
-            let fallbackNote = null;
-
-            for (const port of candidatePorts) {
-                const isRunning = await this.isAuthServerRunning(port);
-                if (isRunning) {
-                    selectedPort = port;
-                    reused = true;
-                    break;
-                }
-                const serverResult = await this.startAuthServer(port, expectedPath);
-                if (!serverResult) {
-                    continue;
-                }
-                if (serverResult.error) {
-                    console.error('AUTHENTICATION_REQUIRED');
-                    console.error('Failed to start local callback server:', serverResult.error.message);
-                    this.lastAuth = null;
-                    return false;
-                }
-                selectedPort = port;
-                serverHandle = serverResult.server;
-                break;
-            }
-
-            if (!selectedPort) {
-                console.error('AUTHENTICATION_REQUIRED');
-                console.error('Failed to find an available localhost port for auth callback.');
-                this.lastAuth = null;
-                return false;
-            }
-
-            if (selectedPort !== basePort) {
-                fallbackNote = `Using alternate port ${selectedPort} (base ${basePort} unavailable). Ensure this redirect URI is authorized in Google Cloud.`;
-            }
-
-            const effectiveRedirect = new URL(redirectUri);
+            const effectiveRedirect = new URL(redirect);
             effectiveRedirect.port = String(selectedPort);
-            const effectiveRedirectUri = effectiveRedirect.toString();
-            this.oauth2Client.redirectUri = effectiveRedirectUri;
+            this.oauth2Client.redirectUri = effectiveRedirect.toString();
 
             const authUrl = this.oauth2Client.generateAuthUrl({
                 access_type: 'offline',
-                scope: ['https://www.googleapis.com/auth/calendar.readonly']
+                scope: AUTH_SCOPE
             });
 
             console.log('AUTHENTICATION_REQUIRED');
             console.log(`AUTH_URL:${authUrl}`);
             console.log(`Click to authorize Google Calendar: [Open Google Auth](${authUrl})`);
-            if (fallbackNote) {
-                console.log(fallbackNote);
-            }
+            if (fallbackNote) console.log(fallbackNote);
 
             this.lastAuth = {
                 url: authUrl,
-                redirectUri: effectiveRedirectUri,
+                redirectUri: this.oauth2Client.redirectUri,
                 port: selectedPort,
                 path: expectedPath,
                 reused,
@@ -297,19 +212,15 @@ class GoogleCalendarAPI {
             };
 
             await this.openAuthInBrowser(authUrl);
+            if (!serverHandle || reused) return false;
 
-            if (!serverHandle || reused) {
-                return false;
-            }
-
-            // Safety timeout
             setTimeout(() => {
                 try {
                     serverHandle.close();
                 } catch (error) {
                     // ignore
                 }
-            }, 5 * 60 * 1000);
+            }, AUTH_TIMEOUT_MS);
 
             return false;
         } catch (error) {
@@ -317,6 +228,74 @@ class GoogleCalendarAPI {
             this.lastAuth = null;
             return false;
         }
+    }
+
+    parseRedirectUri() {
+        const redirectUri = process.env.GOOGLE_REDIRECT_URI;
+        if (!redirectUri) {
+            console.error('AUTHENTICATION_REQUIRED');
+            console.error('Missing GOOGLE_REDIRECT_URI in .env');
+            this.lastAuth = null;
+            return {};
+        }
+
+        let redirect;
+        try {
+            redirect = new URL(redirectUri);
+        } catch (error) {
+            console.error('AUTHENTICATION_REQUIRED');
+            console.error('Invalid GOOGLE_REDIRECT_URI:', redirectUri);
+            this.lastAuth = null;
+            return {};
+        }
+
+        const expectedPath = redirect.pathname || '/oauth2callback';
+        const basePort = redirect.port ? Number(redirect.port) : 80;
+        if (!Number.isFinite(basePort) || basePort <= 0) {
+            console.error('AUTHENTICATION_REQUIRED');
+            console.error('Invalid GOOGLE_REDIRECT_URI port:', redirectUri);
+            this.lastAuth = null;
+            return {};
+        }
+
+        return { redirect, expectedPath, basePort };
+    }
+
+    async findAuthPort(basePort, expectedPath) {
+        const candidatePorts = Array.from({ length: AUTH_PORT_SCAN + 1 }, (_, i) => basePort + i);
+        let fallbackNote = null;
+
+        for (const port of candidatePorts) {
+            const isRunning = await this.isAuthServerRunning(port);
+            if (isRunning) {
+                return { selectedPort: port, serverHandle: null, reused: true, fallbackNote: null };
+            }
+
+            const serverResult = await this.startAuthServer(port, expectedPath);
+            if (!serverResult) continue;
+            if (serverResult.error) {
+                console.error('AUTHENTICATION_REQUIRED');
+                console.error('Failed to start local callback server:', serverResult.error.message);
+                this.lastAuth = null;
+                return {};
+            }
+            if (port !== basePort) {
+                fallbackNote = `Using alternate port ${port} (base ${basePort} unavailable). Ensure this redirect URI is authorized in Google Cloud.`;
+            }
+            return { selectedPort: port, serverHandle: serverResult.server, reused: false, fallbackNote };
+        }
+
+        console.error('AUTHENTICATION_REQUIRED');
+        console.error('Failed to find an available localhost port for auth callback.');
+        this.lastAuth = null;
+        return {};
+    }
+
+    async exchangeToken(code) {
+        const { tokens } = await this.oauth2Client.getToken(code);
+        this.oauth2Client.setCredentials(tokens);
+        await this.saveToken(tokens);
+        this.lastAuth = null;
     }
 
     async getEvents(startDate, endDate, retryCount = 0) {
@@ -335,12 +314,7 @@ class GoogleCalendarAPI {
 
             return response.data.items || [];
         } catch (error) {
-            // Check for authentication errors
-            if (retryCount === 0 && (
-                error.message.includes('No access, refresh token') ||
-                error.message.includes('invalid_grant') ||
-                error.message.includes('invalid_token')
-            )) {
+            if (retryCount === 0 && this.isAuthError(error)) {
                 console.log('Authentication error detected. Starting re-authentication...\n');
 
                 // Delete the invalid token
@@ -406,6 +380,9 @@ class GoogleCalendarAPI {
             return eventsWithBoundaries;
                 
         } catch (error) {
+            if (error && error.message === 'AUTH_PENDING') {
+                throw error;
+            }
             console.error('Error fetching events for custom day:', error.message);
             throw error;
         }
@@ -457,7 +434,6 @@ class GoogleCalendarAPI {
                 return false;
             }
 
-            // Try to refresh token if needed
             if (this.oauth2Client.isTokenExpiring()) {
                 const { credentials } = await this.oauth2Client.refreshAccessToken();
                 this.oauth2Client.setCredentials(credentials);
@@ -524,6 +500,15 @@ class GoogleCalendarAPI {
 
             return false;
         }
+    }
+
+    isAuthError(error) {
+        if (!error || !error.message) return false;
+        return (
+            error.message.includes('No access, refresh token') ||
+            error.message.includes('invalid_grant') ||
+            error.message.includes('invalid_token')
+        );
     }
 }
 
