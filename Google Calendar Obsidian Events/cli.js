@@ -214,7 +214,16 @@ class CalendarCLI {
 
         // Get events
         this.log('Fetching events...');
-        const events = await this.calendarAPI.getEventsForCustomDay(targetDate);
+        let events;
+        try {
+            events = await this.calendarAPI.getEventsForCustomDay(targetDate);
+        } catch (error) {
+            if (error && error.message === 'AUTH_PENDING') {
+                this.log('Auth pending; link should be provided in output.');
+                return;
+            }
+            throw error;
+        }
 
         // Update file or output events
         if (filePath) {

@@ -142,6 +142,13 @@ try {
             debug(`stdout: ${stdout}`);
             debug(`stderr: ${stderr}`);
 
+            const authUrl = extractAuthUrl(stdout, stderr);
+            if (authUrl) {
+                insertAuthBlock(authUrl);
+                resolve('');
+                return;
+            }
+
             if (error) {
                 const errorMsg = `CLI failed: ${error.message}`;
                 debug(errorMsg);
@@ -156,7 +163,7 @@ try {
 
     if (!eventsOutput || !eventsOutput.trim()) {
         new Notice('[GCal] No events found', 3000);
-        return '*No events found for this date.*';
+        return '';
     }
 
     // Parse CLI output into formatted event lines
@@ -214,6 +221,34 @@ function buildEventsSection(formattedEvents) {
     sectionLines.push(formattedEvents.trimEnd());
     sectionLines.push(GCAL_BLOCK_END);
     return sectionLines.join('\n');
+}
+
+function extractAuthUrl(stdout, stderr) {
+    const combined = `${stdout || ''}\n${stderr || ''}`;
+    const lines = combined.split('\n');
+    for (const line of lines) {
+        if (line.startsWith('AUTH_URL:')) {
+            return line.slice('AUTH_URL:'.length).trim();
+        }
+    }
+    return null;
+}
+
+function insertAuthBlock(authUrl) {
+    const currentFile = app.vault.getAbstractFileByPath(tp.file.path(true));
+    const blockLines = [];
+    blockLines.push(GCAL_BLOCK_START);
+    blockLines.push(`Open Google Auth: [Open Google Auth](${authUrl})`);
+    blockLines.push(GCAL_BLOCK_END);
+    const block = blockLines.join('\n');
+
+    app.vault.read(currentFile).then((content) => {
+        const spacer = content.endsWith('\n') ? '' : '\n';
+        const updated = content + spacer + block + '\n';
+        app.vault.modify(currentFile, updated);
+    }).catch((error) => {
+        debug(`Error inserting auth block: ${error.message}`);
+    });
 }
 
 function scheduleCleanupDuplicateLogs() {
