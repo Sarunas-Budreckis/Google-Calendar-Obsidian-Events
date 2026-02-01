@@ -10,6 +10,9 @@ function debug(...args) {
 
 debug('=== NEW TEMPLATE EXECUTION STARTED ===');
 
+const GCAL_BLOCK_START = '<!-- GCAL_EVENTS_START -->';
+const GCAL_BLOCK_END = '<!-- GCAL_EVENTS_END -->';
+
 // Get default date - check if we're in a daily note
 let defaultDate;
 
@@ -160,9 +163,8 @@ try {
     const eventLines = eventsOutput.trim().split('\n');
     const formatted = formatEvents(eventLines);
 
-    // Now update the file using Obsidian's API (avoids race condition with Tasks plugin)
-    const result = await updateEventsIdempotently(formatted);
-    return result;
+    scheduleCleanupDuplicateLogs();
+    return buildEventsSection(formatted);
 
 } catch (error) {
     // Handle errors
@@ -206,6 +208,49 @@ function formatEvents(eventsList) {
     return output;
 }
 
+function buildEventsSection(formattedEvents) {
+    const sectionLines = [];
+    sectionLines.push(GCAL_BLOCK_START);
+    sectionLines.push(formattedEvents.trimEnd());
+    sectionLines.push(GCAL_BLOCK_END);
+    return sectionLines.join('\n');
+}
+
+function scheduleCleanupDuplicateLogs() {
+    const currentFile = app.vault.getAbstractFileByPath(tp.file.path(true));
+    setTimeout(async () => {
+        try {
+            const content = await app.vault.read(currentFile);
+            const blocks = [];
+            let start = 0;
+            while (true) {
+                const startIdx = content.indexOf(GCAL_BLOCK_START, start);
+                if (startIdx === -1) break;
+                const endIdx = content.indexOf(GCAL_BLOCK_END, startIdx);
+                if (endIdx === -1) break;
+                blocks.push([startIdx, endIdx + GCAL_BLOCK_END.length]);
+                start = endIdx + GCAL_BLOCK_END.length;
+            }
+            if (blocks.length <= 1) return;
+
+            // Keep the first (most recent, because button prepends)
+            let updated = content;
+            for (let i = blocks.length - 1; i >= 1; i--) {
+                const [s, e] = blocks[i];
+                updated = updated.slice(0, s) + updated.slice(e);
+            }
+
+            // Keep a single newline after the kept block; trim only if double
+            const keepEnd = blocks[0][1];
+            if (updated.slice(keepEnd, keepEnd + 2) === '\n\n') {
+                updated = updated.slice(0, keepEnd) + updated.slice(keepEnd + 1);
+            }
+            await app.vault.modify(currentFile, updated);
+        } catch (error) {
+            debug(`Error cleaning duplicate logs: ${error.message}`);
+        }
+    }, 300);
+}
 // Helper function to get color square HTML
 function getColorSquare(colorId, eventName = '') {
     // Hardcoded override: Sleep and Wake Up events should always be grey (#7c7c7c)
@@ -238,152 +283,4 @@ function getColorSquare(colorId, eventName = '') {
     return `<span style="display: inline-block; width: 12px; height: 12px; background-color: ${color}; border-radius: 2px; margin-right: 6px; vertical-align: middle;"></span>`;
 }
 
-// Helper function to update events idempotently
-async function updateEventsIdempotently(newEventsText) {
-    debug('=== Starting Idempotent Update ===');
-
-    // Get current file content
-    const currentFile = app.vault.getAbstractFileByPath(tp.file.path(true));
-    const currentContent = await app.vault.read(currentFile);
-    const lines = currentContent.split('\n');
-    debug(`File has ${lines.length} total lines`);
-
-    // Parse new events into an array preserving order
-    const newEventsArray = [];
-    const eventPattern = /^(\d{1,2}:\d{2}\s*[AP]M)\s*-\s*<span style="display: inline-block;[^>]*><\/span>\s*\*\*(.+?)\*\*/;
-
-    debug('--- Parsing NEW events from GCal ---');
-    newEventsText.split('\n').forEach((line, idx) => {
-        const match = line.match(eventPattern);
-        if (match) {
-            const time = match[1];
-            const name = match[2];
-            newEventsArray.push(line);
-            debug(`  New[${idx}]: ${time} - ${name}`);
-        }
-    });
-    debug(`Total NEW events: ${newEventsArray.length}`);
-
-    // Find all existing event lines
-    const existingEventIndices = [];
-    debug('\n--- Finding EXISTING event lines in file ---');
-    debug(`Pattern: ${eventPattern.toString()}`);
-    debug(`Checking ${lines.length} lines...`);
-
-    for (let i = 0; i < lines.length; i++) {
-        const line = lines[i];
-
-        // Check if line might be an event (contains time pattern)
-        const hasTime = /^\d{1,2}:\d{2}\s*[AP]M/.test(line);
-        const hasSpan = line.includes('<span');
-        const hasBold = line.includes('**');
-
-        if (hasTime || hasSpan || hasBold) {
-            debug(`Line ${i} (potential match):`);
-            debug(`  Content: "${line.substring(0, 100)}${line.length > 100 ? '...' : ''}"`);
-            debug(`  Has time: ${hasTime}, Has span: ${hasSpan}, Has bold: ${hasBold}`);
-        }
-
-        const match = line.match(eventPattern);
-        if (match) {
-            const time = match[1];
-            const name = match[2];
-            existingEventIndices.push(i);
-            debug(`  ✓ MATCHED[line ${i}]: ${time} - ${name}`);
-        } else if (hasTime || hasSpan || hasBold) {
-            debug(`  ✗ NO MATCH (pattern didn't match)`);
-        }
-    }
-
-    debug(`\nTotal EXISTING events found: ${existingEventIndices.length}`);
-
-    if (existingEventIndices.length === 0) {
-        debug('\n*** No existing events found ***');
-        debug('--- ALL lines in file (first 30) ---');
-        lines.slice(0, 30).forEach((line, idx) => {
-            debug(`Line ${idx}: "${line}"`);
-        });
-        debug('=================================\n');
-    }
-
-    // If no existing events found, append new events as usual
-    if (existingEventIndices.length === 0) {
-        debug('→ MODE: Appending all events (no existing events)');
-        new Notice(`[GCal] Appending ${newEventsArray.length} events`, 3000);
-        return newEventsText;
-    }
-
-    debug('→ MODE: Updating events in place');
-
-    // Replace existing events with new ones one by one
-    const updatedLines = [...lines];
-    let newEventIndex = 0;
-    let replaced = 0;
-    let deleted = 0;
-
-    debug('--- Performing replacements ---');
-    for (let i = 0; i < existingEventIndices.length; i++) {
-        const lineIndex = existingEventIndices[i];
-
-        if (newEventIndex < newEventsArray.length) {
-            // Replace old line with new event
-            const oldMatch = lines[lineIndex].match(eventPattern);
-            const newMatch = newEventsArray[newEventIndex].match(eventPattern);
-            debug(`  Replace line ${lineIndex}: "${oldMatch[1]} - ${oldMatch[2]}" → "${newMatch[1]} - ${newMatch[2]}"`);
-
-            updatedLines[lineIndex] = newEventsArray[newEventIndex];
-            newEventIndex++;
-            replaced++;
-        } else {
-            // No more new events, delete this old line
-            const oldMatch = lines[lineIndex].match(eventPattern);
-            debug(`  DELETE line ${lineIndex}: "${oldMatch[1]} - ${oldMatch[2]}" (no more new events)`);
-            updatedLines[lineIndex] = null; // Mark for deletion
-            deleted++;
-        }
-    }
-    debug(`Replaced: ${replaced}, Deleted: ${deleted}`);
-
-    // Remove null entries (deleted old lines)
-    const filteredLines = updatedLines.filter(line => line !== null);
-
-    // If there are extra new events, add them after the last existing event
-    let added = 0;
-    if (newEventIndex < newEventsArray.length) {
-        const lastEventIndex = existingEventIndices[existingEventIndices.length - 1];
-        debug(`--- Adding ${newEventsArray.length - newEventIndex} extra new events ---`);
-
-        // Find the position in filtered lines (accounting for deletions)
-        let insertPosition = lastEventIndex;
-        for (let i = 0; i < lastEventIndex; i++) {
-            if (updatedLines[i] === null) {
-                insertPosition--;
-            }
-        }
-        insertPosition++; // Insert after the last event
-
-        // Insert remaining new events
-        const remainingEvents = newEventsArray.slice(newEventIndex);
-        remainingEvents.forEach((event, idx) => {
-            const match = event.match(eventPattern);
-            debug(`  ADD at position ${insertPosition + idx}: "${match[1]} - ${match[2]}"`);
-        });
-        filteredLines.splice(insertPosition, 0, ...remainingEvents);
-        added = remainingEvents.length;
-    }
-
-    // Replace file content
-    debug(`\n→ Writing updated file (${filteredLines.length} lines)`);
-    await app.vault.modify(currentFile, filteredLines.join('\n'));
-
-    // Show summary
-    const summary = [];
-    if (replaced > 0) summary.push(`${replaced} updated`);
-    if (deleted > 0) summary.push(`${deleted} deleted`);
-    if (added > 0) summary.push(`${added} added`);
-    debug(`=== Summary: ${summary.join(', ')} ===\n`);
-    new Notice(`[GCal] Events: ${summary.join(', ')}`, 4000);
-
-    return ''; // Return empty since we've updated the file
-}
 %>
